@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "epub2pdf-offline"
+version = "1.0.0"
+description = "Offline Windows EPUB to PDF converter using Microsoft Edge headless rendering."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "AGPL-3.0-or-later"
+authors = [{ name = "EPUB2PDF contributors" }]
+keywords = ["epub", "pdf", "ebook", "converter", "offline"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business",
+    "Topic :: Text Processing",
+]
+dependencies = [
+    "EbookLib==0.20",
+    "lxml==6.0.2",
+    "pypdf==6.13.3",
+    "pikepdf==10.8.0",
+    "fonttools==4.61.1",
+    "PySide6==6.11.1",
+    "websocket-client==1.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.0.3",
+    "pyinstaller==6.20.0",
+]
+
+[project.scripts]
+epub2pdf = "epub2pdf.cli:main"
+
+[project.gui-scripts]
+epub2pdf-gui = "epub2pdf.app:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q -p no:cacheprovider"

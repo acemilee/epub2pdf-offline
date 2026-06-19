@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments and local tooling
+.gitdata/
+.release/
+repo_meta/
+test_write_dir/
+.venv/
+venv/
+env/
+.env
+.env.*
+.claude/
+.vscode/
+.idea/
+
+# Build and release outputs
+build/
+dist/
+*.spec.bak
+*.manifest
+*.log
+*.zip
+*.7z
+
+# Local EPUB/PDF fixtures and generated conversion output
+ebook/
+output/
+*.epub
+*.pdf
+!tests/fixtures/**/*.epub
+!tests/fixtures/**/*.pdf
+
+# Renderer profiles, work directories and manual diagnostics
+debug/
+ebook_work/
+edge_profile/
+manual_tmp_check/
+tests_tmp/
+tmp*/
+tmp_*/
+
+# OS noise
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+*.pyc.*

@@ -111,8 +111,13 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 3. 封面格式嗅探（SVG/AVIF）或引入 Pillow（计划 Q4）。
 4. GUI 内嵌预览去掉 `<a>` 下划线（仅预览层，不影响 PDF）。
 5. 大书内存/流式优化（目前 400 章约 13MB PDF 一次性 pypdf 写回）。
+6. **GUI「打开输出目录」按钮**（2026-10-19 用户提出，P2 快速项）：顶栏「更改输出目录」旁新增按钮，一键用资源管理器打开当前输出目录，避免用户手动查找。
+   - 实现要点：`QDesktopServices.openUrl(QUrl.fromLocalFile(输出目录))`（PySide6 已依赖，无需新库）；目录为空/不存在时按钮置灰并在 tooltip 说明；可选：任务行右键「在文件夹中显示」用 `explorer /select,<pdf>` 定位单个结果。
+   - 测试：单测 monkeypatch `QDesktopServices.openUrl` 断言传入路径；不依赖 Edge。
+   - 预估 0.2 人日，风险低。
 
 ## 9. 变更记录（只留一行摘要，细节见 docs/lessons.md）
 
+- **2026-10-19 v1.1 候选增补**：按用户要求把「GUI 打开输出目录按钮」纳入候选（§8 第 6 项），未开工。
 - **2026-10-19 v1.0.1**（commit `6602927`，tag `v1.0.1`）：修复目录页下划线；书签改为 Chromium 多级大纲（CDP 主线 + 锚点兜底）；字体全书并集 + webfont + PS 名；封面 contain；取消/@charset/调试/阶段耗时；补单元+E2E 测试基建；真实书 296s→66.9s。
 - **2026-10-19 v1.0.0 基线**（commit `752cf64`，tag `v1.0`）：GUI+CLI+Edge 渲染+封面+锚点书签+字体补写初版。

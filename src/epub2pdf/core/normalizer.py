@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import posixpath
 import re
+from dataclasses import dataclass
 from html import escape
 from pathlib import Path
 from urllib.parse import unquote
@@ -27,6 +28,30 @@ from .parser import EpubBook, EpubChapter
 ANCHOR_PREFIX = "EPBPFANCHOR_"
 ANCHOR_SUFFIX = "_EPBPFANCHOR_END"
 END_MARKER = "EPBPFEND_DOCUMENT"
+
+
+@dataclass(frozen=True)
+class TocAnchor:
+    """One TOC entry anchored inside the generated HTML.
+
+    ``anchor_id`` is rendered as ``EPBPFANCHOR_<anchor_id>_EPBPFANCHOR_END``
+    so the assembler's existing anchor regex finds it without a second
+    pattern; ``level`` is the 0-based depth in the EPUB TOC tree.
+    """
+
+    title: str
+    level: int
+    href: str
+    fragment: str
+    anchor_id: str
+
+
+@dataclass(frozen=True)
+class NormalizeResult:
+    """Result of :func:`normalize`."""
+
+    html_path: str
+    toc_anchors: tuple[TocAnchor, ...] = ()
 
 
 # ---------- Print CSS ----------
@@ -313,6 +338,130 @@ def _inject_anchor_after_first_heading(body_inner: str, anchor_html: str) -> tup
     return body_inner, False
 
 
+def _anchor_span(marker_text: str, element_id: str = "") -> str:
+    """Invisible, in-flow span carrying one or more anchor markers."""
+    id_attr = f' id="{escape(element_id)}"' if element_id else ""
+    return (
+        f'<span class="epub-anchor"{id_attr} '
+        f'style="display:inline;font-size:1px;line-height:1px;'
+        f'color:transparent;height:0;overflow:hidden;">'
+        f"{escape(marker_text)}"
+        f"</span>"
+    )
+
+
+def _anchor_marker(anchor_id: str) -> str:
+    return f"{ANCHOR_PREFIX}{anchor_id}{ANCHOR_SUFFIX}"
+
+
+def _iter_toc(nodes, level: int = 0):
+    """Yield ``(TocNode, depth)`` depth-first."""
+    for node in nodes or []:
+        yield node, level
+        yield from _iter_toc(node.children, level + 1)
+
+
+def _normalize_href_path(href: str) -> str:
+    path = unquote(href.split("#", 1)[0]).strip()
+    while path.startswith("./"):
+        path = path[2:]
+    return posixpath.normpath(path) if path else ""
+
+
+def _resolve_toc_chapter(book: EpubBook, href: str) -> EpubChapter | None:
+    """Map a TOC href to a chapter, tolerating path prefix differences."""
+    norm = _normalize_href_path(href)
+    if not norm:
+        return None
+    for ch in book.chapters:
+        if _normalize_href_path(ch.href) == norm:
+            return ch
+    base = posixpath.basename(norm)
+    matches = [
+        ch for ch in book.chapters
+        if posixpath.basename(_normalize_href_path(ch.href)) == base
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _build_toc_anchors(
+    book: EpubBook,
+) -> tuple[tuple[TocAnchor, ...], dict[str, list[TocAnchor]], int]:
+    """Build one :class:`TocAnchor` per resolvable TOC entry.
+
+    Returns ``(anchors, anchors_by_chapter_id, skipped_count)``.
+    """
+    anchors: list[TocAnchor] = []
+    by_chapter: dict[str, list[TocAnchor]] = {}
+    skipped = 0
+    for node, level in _iter_toc(book.toc):
+        href = (node.href or "").strip()
+        if not href:
+            continue
+        chapter = _resolve_toc_chapter(book, href)
+        if chapter is None or chapter.is_cover_only:
+            skipped += 1
+            continue
+        fragment = ""
+        if "#" in href:
+            fragment = unquote(href.split("#", 1)[1]).strip()
+        anchor = TocAnchor(
+            title=_clean_text_artifacts(node.title or "").strip(),
+            level=level,
+            href=href,
+            fragment=fragment,
+            anchor_id=f"EPBPFTOC_{len(anchors) + 1}",
+        )
+        anchors.append(anchor)
+        by_chapter.setdefault(chapter.id, []).append(anchor)
+    return tuple(anchors), by_chapter, skipped
+
+
+def _insert_anchor_after_element(
+    body_inner: str,
+    target_id: str,
+    anchor_html: str,
+) -> tuple[str, bool]:
+    """Insert ``anchor_html`` right after the element whose id is ``target_id``."""
+    if not target_id:
+        return body_inner, False
+    try:
+        root = lxml_html.fragment_fromstring(
+            _strip_xml_declaration(body_inner), create_parent="div"
+        )
+        anchor = lxml_html.fragment_fromstring(anchor_html)
+    except Exception:
+        return body_inner, False
+
+    target = None
+    for elem in root.iter():
+        if elem.get("id") == target_id:
+            target = elem
+            break
+    if target is None:
+        return body_inner, False
+    parent = target.getparent()
+    if parent is None:
+        return body_inner, False
+    parent.insert(parent.index(target) + 1, anchor)
+    return _serialize_fragment_children(root), True
+
+
+def _inject_fragment_anchors(
+    body_inner: str,
+    anchors: list[TocAnchor],
+) -> tuple[str, list[TocAnchor]]:
+    """Inject fragment-targeted TOC anchors; return those that failed."""
+    failed: list[TocAnchor] = []
+    for anchor in anchors:
+        body_inner, ok = _insert_anchor_after_element(
+            body_inner, anchor.fragment, _anchor_span(_anchor_marker(anchor.anchor_id))
+        )
+        if not ok:
+            failed.append(anchor)
+    return body_inner, failed
+
+
 def _rewrite_relative_paths(
     chapter_html: str,
     chapter_dir: str,
@@ -528,10 +677,12 @@ def _write_assets(book: EpubBook, work_dir: str) -> dict[str, str]:
 
 # ---------- Public API ----------
 
-def normalize(book: EpubBook, work_dir: str) -> str:
+def normalize(book: EpubBook, work_dir: str) -> NormalizeResult:
     """Build a single self-contained HTML file in ``work_dir``.
 
-    Returns the absolute path to ``index.html``.
+    Returns a :class:`NormalizeResult` whose ``html_path`` is the absolute
+    path to ``index.html`` and whose ``toc_anchors`` map every resolvable
+    EPUB TOC entry to an anchor injected into the HTML.
     """
     os.makedirs(work_dir, exist_ok=True)
 
@@ -539,6 +690,7 @@ def normalize(book: EpubBook, work_dir: str) -> str:
     asset_maps = _write_assets(book, work_dir)
     image_map = asset_maps.get("images", {})
     font_map = asset_maps.get("fonts", {})
+    toc_anchors, toc_by_chapter, skipped_toc = _build_toc_anchors(book)
 
     # 2. Build chapter HTML
     body_parts: list[str] = []
@@ -563,31 +715,40 @@ def normalize(book: EpubBook, work_dir: str) -> str:
                 f'{escape(chapter_title)}</h1>\n'
             )
 
+        # TOC entries pointing at this chapter: fragment targets go right
+        # after the target element, chapter-level targets go at the top.
+        chapter_toc = toc_by_chapter.get(ch.id, [])
+        fragment_anchors = [a for a in chapter_toc if a.fragment]
+        start_anchors = [a for a in chapter_toc if not a.fragment]
+        if fragment_anchors:
+            body_inner, failed = _inject_fragment_anchors(
+                body_inner, fragment_anchors
+            )
+            start_anchors.extend(failed)
+
         # Anchor: zero-height inline span with a unique marker string.
         # Must stay in-flow (no position:absolute) so msedge --print-to-pdf
         # actually includes it in the text stream — that's what we search
-        # for later to compute outline page numbers.
-        anchor_id = f"{ANCHOR_PREFIX}{ch.id}{ANCHOR_SUFFIX}"
-        anchor_html = (
-            f'<span class="epub-anchor" '
-            f'id="anchor_{escape(ch.id)}" '
-            f'style="display:inline;font-size:1px;line-height:1px;'
-            f'color:transparent;height:0;overflow:hidden;">'
-            f'{escape(anchor_id)}'
-            f'</span>'
+        # for later to compute outline page numbers.  The chapter marker and
+        # any chapter-level TOC markers share one span so the heading keeps
+        # exactly one sibling and literal text stays contiguous.
+        start_markers = _anchor_marker(ch.id) + "".join(
+            _anchor_marker(a.anchor_id) for a in start_anchors
         )
+        chapter_anchor_html = _anchor_span(start_markers, f"anchor_{ch.id}")
+
         leading_anchor_html = ""
         if title_html:
             # Synthetic heading first, marker as its sibling so outline titles
             # stay clean.
-            title_html = title_html.rstrip("\n") + anchor_html + "\n"
+            title_html = title_html.rstrip("\n") + chapter_anchor_html + "\n"
         else:
             body_inner, anchor_inserted = _inject_anchor_after_first_heading(
                 body_inner,
-                anchor_html,
+                chapter_anchor_html,
             )
             if not anchor_inserted:
-                leading_anchor_html = f"  {anchor_html}\n"
+                leading_anchor_html = f"  {chapter_anchor_html}\n"
 
         body_parts.append(
             f'<section class="chapter" id="{escape(ch.id)}" '
@@ -614,6 +775,11 @@ def normalize(book: EpubBook, work_dir: str) -> str:
             f"<!-- skipped {skipped_cover} cover-only chapter(s) -->\n"
             + body_html
         )
+    if skipped_toc:
+        body_html = (
+            f"<!-- skipped {skipped_toc} TOC entr(y/ies) with unresolved target -->\n"
+            + body_html
+        )
 
     # 3. Inline all EPUB CSS (so head_extras covers them)
     inline_css = _rewrite_css_urls(_concat_css(book.styles), image_map, font_map)
@@ -624,7 +790,7 @@ def normalize(book: EpubBook, work_dir: str) -> str:
 
     index_path = os.path.join(work_dir, "index.html")
     Path(index_path).write_text(final_html, encoding="utf-8")
-    return index_path
+    return NormalizeResult(html_path=index_path, toc_anchors=toc_anchors)
 
 
 def _extract_body_inner(html_text: str) -> str:

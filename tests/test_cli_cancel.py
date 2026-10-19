@@ -33,7 +33,7 @@ def test_renderer_cancellation_becomes_conversion_cancelled(monkeypatch, tmp_pat
     def fake_normalize(_book, work_dir):
         path = Path(work_dir) / "book.html"
         path.write_text("<html><body>Hello</body></html>", encoding="utf-8")
-        return str(path)
+        return cli.normalizer.NormalizeResult(html_path=str(path))
 
     def fake_render(html_path, pdf_path, *, timeout, cancel_check=None):
         raise renderer.RendererCancelled("render cancelled by user")

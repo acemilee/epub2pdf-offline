@@ -115,17 +115,17 @@ def test_normalize_skips_svg_cover_and_does_not_render_internal_or_duplicate_tit
     _write_epub_with_svg_cover(epub_path)
     book = parser.parse(str(epub_path))
 
-    html_path = normalize(book, str(work_dir / "work"))
+    html_path = normalize(book, str(work_dir / "work")).html_path
     rendered = Path(html_path).read_text(encoding="utf-8")
 
     assert "cover_xhtml" not in rendered
     assert 'class="chapter-title synthetic">Chapter One</h1>' not in rendered
     assert rendered.count("<h1>Chapter One") == 1
     assert re.search(r'<h1>Chapter One</h1>\s*<span class="epub-anchor"', rendered)
-    assert "EPBPFANCHOR_chapter_1_EPBPFANCHOR_END</span>" in rendered
+    assert "EPBPFANCHOR_chapter_1_EPBPFANCHOR_END" in rendered
     assert '<section class="chapter" id="nav"' in rendered
     assert rendered.count("<h1>Contents") == 1
-    assert "EPBPFANCHOR_nav_EPBPFANCHOR_END</span>" in rendered
+    assert "EPBPFANCHOR_nav_EPBPFANCHOR_END" in rendered
 
 
 

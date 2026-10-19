@@ -1,3 +1,60 @@
+# EPUB2PDF v1.1.0
+
+Reading-experience release. Every generated PDF now starts with a real,
+page-numbered table of contents, and cover formats are detected from the image
+content instead of the file extension.
+
+## Highlights
+
+- **Generated table of contents**: a printable TOC page is inserted after the
+  cover. Rows show dotted leaders and the final PDF page number, and each row is
+  clickable. On the 7-volume, 416-chapter reference book this produced 12 TOC
+  pages with ~410 rows whose numbers matched the body pages.
+- **Bookmarks from one source**: `--outline-source chromium` (default) keeps the
+  full `h1`–`h6` nesting copied from Chromium's outline (708 bookmarks, 5 levels
+  on the reference book). `--outline-source ncx` builds bookmarks from the EPUB
+  navigation document instead (410 bookmarks, 3 levels on the same book).
+- **Cover format sniffing**: covers are recognised by magic bytes (PNG, JPEG,
+  GIF, WebP, BMP, SVG, AVIF, ICO) rather than by extension, so SVG/AVIF covers
+  are no longer blank. TIFF covers are skipped with a warning because Edge
+  cannot render them.
+- **Nested EPUB navigation is preserved**: the parser now walks nested
+  `(Section, [Link, …])` tuples inside a volume, so the generated TOC lists the
+  chapters inside each volume instead of only the volume headings.
+- **GUI**: a new **打开输出目录** toolbar button opens the current output folder
+  (it reports when the folder does not exist yet).
+- **Faster large-book assembly**: page text used to be extracted with pypdf's
+  pure-Python parser (about 4 minutes on the reference book). The assembler now
+  uses PyMuPDF for text extraction when available (pypdf stays as a fallback),
+  cutting assembly from ~270 s to ~23 s and whole-book conversion to under a
+  minute on the same machine.
+- **Cover page refinement**: generated cover pages use `object-fit: contain`
+  (scaled to fit, never cropped).
+
+## Compatibility
+
+- Windows 10/11 with Microsoft Edge installed.
+- Python 3.11+ when running from source.
+
+## Known limitations
+
+- Generated TOC rows come from the EPUB navigation entries that resolve to a
+  rendered chapter; books whose navigation only lists volumes will list only
+  volumes.
+- TIFF covers are skipped.
+- NCX bookmarks are flatter than Chromium bookmarks on books with deep heading
+  structures.
+- Fixed-layout EPUBs (comics, magazines) are still rendered reflowably.
+- DRM-protected EPUBs are not supported.
+
+## Release Assets
+
+- `EpubToPdf-v1.1.0-windows-x64.zip`: Windows app package. Extract the archive
+  and run `EpubToPdf.exe`.
+- Source archive generated from the `v1.1.0` Git tag.
+
+---
+
 # EPUB2PDF v1.0.1
 
 Reading-experience and reliability release. Existing v1.0 users should upgrade:

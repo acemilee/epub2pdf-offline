@@ -19,8 +19,11 @@ The converter focuses on practical reading quality:
 - Chinese and English text display correctly in common PDF readers; the fonts
   used by the browser are embedded into the PDF, so text stays selectable and
   searchable on other machines.
-- Book covers are preserved when the EPUB provides one; the artwork is scaled
-  down proportionally instead of being cropped.
+- A printable table of contents page is generated for every book, with page
+  numbers that match the final PDF and clickable rows.
+- Covers in PNG, JPEG, GIF, WebP, BMP, SVG and AVIF are placed on a dedicated
+  page scaled to fit; TIFF covers are skipped with a warning because Edge cannot
+  render them.
 - EPUB navigation and the document's heading hierarchy become nested PDF
   bookmarks (levels follow `h1`–`h6`; the fallback renderer produces a flat,
   chapter-level outline).
@@ -55,7 +58,8 @@ app.
 1. Open `EpubToPdf.exe`.
 2. Drag one or more `.epub` files into the window.
 3. Wait for each conversion to finish.
-4. Find the generated `.pdf` file in the selected output folder.
+4. Find the generated `.pdf` file in the selected output folder, or click
+   **打开输出目录** in the toolbar to open it in File Explorer.
 
 By default, the app keeps conversion clean: it outputs the PDF and removes
 temporary work files after the job finishes.
@@ -87,6 +91,7 @@ CLI options:
 | `--no-cover` | Do not insert the EPUB cover as the first PDF page. |
 | `--quiet` | Hide normal progress output. |
 | `--timeout` | Total conversion timeout in seconds (0 = no timeout). The CLI prints a per-stage timing summary; a large book (400+ chapters) can take several minutes. |
+| `--outline-source` | Bookmark source: `chromium` (default, follows rendered `h1`–`h6` nesting) or `ncx` (uses the EPUB navigation document; flatter on many books). |
 | `--debug` | Print a full Python traceback when conversion fails. |
 
 ## Run From Source
@@ -104,8 +109,8 @@ python run.py
 ```
 
 `requirements.txt` is the single source of truth for runtime dependencies;
-`pyproject.toml` lists the same packages for packaging. Test dependencies
-(including PyMuPDF for PDF assertions) live in `requirements-dev.txt`.
+`pyproject.toml` lists the same packages for packaging. Test and packaging
+dependencies (`pytest`, `pyinstaller`) live in `requirements-dev.txt`.
 
 Run the fast unit suite with:
 

@@ -36,7 +36,7 @@ def test_normalize_preserves_unicode_text():
     shutil.rmtree(work_dir, ignore_errors=True)
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    html_path = normalize(book, str(work_dir))
+    html_path = normalize(book, str(work_dir)).html_path
     rendered = Path(html_path).read_text(encoding="utf-8")
 
     assert "It’s © 中文" in rendered
@@ -77,7 +77,7 @@ def test_normalize_rewrites_xhtml_image_paths_with_xml_declaration():
     shutil.rmtree(work_dir, ignore_errors=True)
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    html_path = normalize(book, str(work_dir))
+    html_path = normalize(book, str(work_dir)).html_path
     rendered = Path(html_path).read_text(encoding="utf-8")
 
     assert 'src="assets/rsrc2Y.jpg"' in rendered
@@ -116,7 +116,7 @@ def test_normalize_uses_asset_map_for_duplicate_image_basenames():
     shutil.rmtree(work_dir, ignore_errors=True)
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    html_path = normalize(book, str(work_dir))
+    html_path = normalize(book, str(work_dir)).html_path
     rendered = Path(html_path).read_text(encoding="utf-8")
 
     assert 'src="assets/dup.jpg"' in rendered
@@ -154,7 +154,7 @@ def test_normalize_places_anchor_after_first_heading_to_keep_outline_title_clean
     shutil.rmtree(work_dir, ignore_errors=True)
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    html_path = normalize(book, str(work_dir))
+    html_path = normalize(book, str(work_dir)).html_path
     rendered = Path(html_path).read_text(encoding="utf-8")
 
     assert "<section class=\"chapter\" id=\"ch1\"" in rendered
@@ -201,7 +201,7 @@ def test_normalize_allows_pre_blocks_to_split_across_pages():
     shutil.rmtree(work_dir, ignore_errors=True)
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    html_path = normalize(book, str(work_dir))
+    html_path = normalize(book, str(work_dir)).html_path
     rendered = Path(html_path).read_text(encoding="utf-8")
 
     assert "table, figure, blockquote {" in rendered
@@ -248,7 +248,7 @@ def test_normalize_removes_link_underline_and_link_color_from_epub_anchor_styles
     shutil.rmtree(work_dir, ignore_errors=True)
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    html_path = normalize(book, str(work_dir))
+    html_path = normalize(book, str(work_dir)).html_path
     rendered = Path(html_path).read_text(encoding="utf-8")
 
     assert "text-decoration: none !important" in rendered
@@ -290,7 +290,7 @@ def test_normalize_replaces_nbsp_artifacts_with_regular_spaces():
     shutil.rmtree(work_dir, ignore_errors=True)
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    html_path = normalize(book, str(work_dir))
+    html_path = normalize(book, str(work_dir)).html_path
     rendered = Path(html_path).read_text(encoding="utf-8")
 
     assert "\u00a0" not in rendered
@@ -327,7 +327,7 @@ def test_normalize_skips_synthetic_title_when_heading_differs_only_by_whitespace
     shutil.rmtree(work_dir, ignore_errors=True)
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    rendered = Path(normalize(book, str(work_dir))).read_text(encoding="utf-8")
+    rendered = Path(normalize(book, str(work_dir)).html_path).read_text(encoding="utf-8")
 
     assert "chapter-title synthetic" not in rendered
 

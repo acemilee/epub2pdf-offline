@@ -30,6 +30,7 @@ from typing import Optional
 import pypdf
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import (
+    ArrayObject,
     DecodedStreamObject,
     NameObject,
     RectangleObject,
@@ -82,8 +83,14 @@ def _rmtree_retry(path: str | Path, attempts: int = 10, delay: float = 0.2) -> N
 
 # ---------- Cover page PDF ----------
 
-def _guess_image_ext(data: bytes) -> str:
-    """Return a file extension (including dot) based on magic bytes."""
+def _guess_image_ext(data: bytes, filename: str = "") -> str:
+    """Return a file extension (including dot) based on magic bytes.
+
+    Chromium sniffs the payload, so a wrong extension only matters for formats
+    it cannot decode at all (SVG/AVIF/TIFF used to be written as ``.jpg`` and
+    rendered blank).  TIFF is detected so the caller can warn and skip instead
+    of silently producing an empty cover page.
+    """
     if data.startswith(b"\xff\xd8\xff"):
         return ".jpg"
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
@@ -92,7 +99,26 @@ def _guess_image_ext(data: bytes) -> str:
         return ".gif"
     if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
         return ".webp"
-    # Fall back to original filename hint if it has one
+    if data.startswith(b"BM"):
+        return ".bmp"
+    if data.startswith(b"II*\x00") or data.startswith(b"MM\x00*"):
+        return ".tiff"
+    if data.startswith(b"\x00\x00\x01\x00"):
+        return ".ico"
+    if len(data) >= 12 and data[4:8] == b"ftyp":
+        brand = data[8:12]
+        if brand in (b"avif", b"avis"):
+            return ".avif"
+    head = data[:512].lstrip(b"\xef\xbb\xbf \t\r\n")
+    if head.startswith(b"<svg") or head.startswith(b"<?xml"):
+        return ".svg"
+    if filename:
+        suffix = os.path.splitext(filename)[1].lower()
+        if suffix in {
+            ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp",
+            ".svg", ".avif", ".ico", ".tiff", ".tif",
+        }:
+            return suffix
     return ".jpg"
 
 
@@ -171,8 +197,21 @@ def _make_cover_pdf(
 
 # ---------- Outline (bookmarks) ----------
 
-def _page_texts(reader: PdfReader) -> list[str]:
-    """Extract every page's text once; all later passes share this list."""
+def _page_texts(reader: PdfReader, pdf_path: str | None = None) -> list[str]:
+    """Extract every page's text once; all later passes share this list.
+
+    PyMuPDF is ~50x faster than pypdf at text extraction on large books and is
+    used when available; pypdf remains the fallback so the dependency stays
+    optional.
+    """
+    if pdf_path:
+        try:
+            import fitz  # PyMuPDF
+
+            with fitz.open(pdf_path) as doc:
+                return [page.get_text() or "" for page in doc]
+        except Exception:
+            pass
     texts: list[str] = []
     for page in reader.pages:
         try:
@@ -180,6 +219,21 @@ def _page_texts(reader: PdfReader) -> list[str]:
         except Exception:
             texts.append("")
     return texts
+
+
+def _build_page_index(page_texts: list[str]) -> dict[str, int]:
+    """One pass over all page texts: ``{anchor_id: first_page_index}``.
+
+    Matches both chapter anchors (``EPBPFANCHOR_<chapter id>_...``) and TOC
+    anchors (``EPBPFANCHOR_EPBPFTOC_<n>_...``); the same regex is reused so
+    there is exactly one marker format in the rendered PDF.
+    """
+    index: dict[str, int] = {}
+    for page_index, text in enumerate(page_texts):
+        for match in ANCHOR_RE.finditer(text):
+            anchor_id = re.sub(r"\s+", "", match.group(1))
+            index.setdefault(anchor_id, page_index)
+    return index
 
 
 def _find_anchor_pages(
@@ -198,15 +252,8 @@ def _find_anchor_pages(
     if not anchor_ids:
         return {}
     texts = page_texts if page_texts is not None else _page_texts(reader)
-    found: dict[str, int] = {}
-    for i, text in enumerate(texts):
-        for m in ANCHOR_RE.finditer(text):
-            cid = re.sub(r"\s+", "", m.group(1))
-            if cid in anchor_ids and cid not in found:
-                found[cid] = i
-        if len(found) == len(anchor_ids):
-            break  # all anchors located
-    return found
+    index = _build_page_index(texts)
+    return {aid: index[aid] for aid in anchor_ids if aid in index}
 
 
 def _validate_render_integrity(
@@ -305,6 +352,39 @@ def _copy_outline(
     return count
 
 
+def _build_outline_from_toc(
+    writer: PdfWriter,
+    toc_anchors,
+    anchor_page_index: dict[str, int],
+    page_offset: int = 0,
+) -> int:
+    """Build a nested outline from TOC entries (``outline_source="ncx"``).
+
+    Entry levels come from the EPUB TOC depth; unresolvable entries are
+    skipped rather than guessed.  Returns the number of entries added.
+    """
+    count = 0
+    stack: list[tuple[int, object]] = []
+    for entry in toc_anchors or ():
+        raw_page = anchor_page_index.get(entry.anchor_id)
+        title = _dedupe_title(str(entry.title or "").strip())
+        if raw_page is None or not title:
+            continue
+        level = max(0, int(entry.level))
+        while stack and stack[-1][0] >= level:
+            stack.pop()
+        parent = stack[-1][1] if stack else None
+        try:
+            item = writer.add_outline_item(
+                title, raw_page + page_offset, parent=parent
+            )
+        except Exception:
+            continue
+        stack.append((level, item))
+        count += 1
+    return count
+
+
 def _add_outline(
     writer: PdfWriter,
     raw_reader: PdfReader,
@@ -350,6 +430,9 @@ def assemble(
     book: EpubBook,
     cover_image_bytes: Optional[bytes] = None,
     deadline: float | None = None,
+    toc_anchors: tuple = (),
+    toc_page_title: str | None = None,
+    outline_source: str = "chromium",
 ) -> int:
     """Post-process the msedge-produced PDF.
 
@@ -358,6 +441,10 @@ def assemble(
         output_pdf_path: Final output PDF path.
         book: The parsed ``EpubBook`` (for metadata + chapters + toc).
         cover_image_bytes: Raw bytes of the cover image, or None.
+        toc_anchors: TOC entries (``normalizer.TocAnchor``) for the generated
+            table-of-contents pages.  Empty disables the generated TOC.
+        toc_page_title: Heading for the generated TOC page; defaults to a
+            localized "目录" / "Contents".
 
     Returns:
         Page count of the final PDF.
@@ -385,7 +472,7 @@ def assemble(
         reader = PdfReader(raw_pdf_path)
     except Exception as e:
         raise AssembleError(f"failed to read raw PDF: {e}") from e
-    page_texts = _page_texts(reader)
+    page_texts = _page_texts(reader, raw_pdf_path)
     _validate_render_integrity(reader, book, page_texts=page_texts)
 
     writer = PdfWriter()
@@ -405,7 +492,15 @@ def assemble(
         cover_work = os.path.join(work_dir, f"cover-{uuid.uuid4().hex}")
         Path(cover_work).mkdir(parents=True, exist_ok=True)
         # Pick extension based on magic bytes (msedge needs the right mime)
-        ext = _guess_image_ext(cover_bytes)
+        ext = _guess_image_ext(cover_bytes, book.cover_image or "")
+        if ext in (".tiff", ".tif"):
+            import sys
+            print(
+                "[assembler] WARNING: TIFF cover is not supported by Edge; "
+                "cover page skipped (convert the cover to PNG/JPEG)",
+                file=sys.stderr,
+            )
+            cover_bytes = None
         cover_stem = "_cover_image"
         cover_path = os.path.join(cover_work, cover_stem + ext)
         try:
@@ -432,10 +527,71 @@ def assemble(
         finally:
             _rmtree_retry(cover_work)
 
-    # Add pages in order: cover first (if any), then body
+    # --- Generated table-of-contents pages (optional) ---
+    # Rendered with the same headless-Chromium pipeline as the body so the
+    # typography matches; page numbers are resolved from the invisible TOC
+    # anchors in the raw body PDF.
+    toc_pages: list = []
+    toc_link_specs: tuple = ()
+    if toc_anchors:
+        check_timeout()
+        toc_work = os.path.join(
+            os.path.dirname(raw_pdf_path) or ".", f"toc-{uuid.uuid4().hex}"
+        )
+        Path(toc_work).mkdir(parents=True, exist_ok=True)
+        try:
+            from . import toc_page
+
+            body_page_size = (A4_WIDTH_PT, A4_HEIGHT_PT)
+            if len(reader.pages) > 0:
+                try:
+                    box = reader.pages[0].mediabox
+                    body_page_size = (float(box.width), float(box.height))
+                except Exception:
+                    pass
+            title = toc_page_title or toc_page.toc_title_for_language(
+                book.language
+            )
+            toc_result = toc_page.render_toc_pdf(
+                toc_anchors,
+                _build_page_index(page_texts),
+                page_width_pt=body_page_size[0],
+                page_height_pt=body_page_size[1],
+                title=title,
+                work_dir=toc_work,
+                timeout=remaining_timeout(180),
+                cover_pages=len(cover_pages),
+            )
+            if toc_result.page_count:
+                toc_pdf = os.path.join(toc_work, "toc.pdf")
+                toc_reader = PdfReader(BytesIO(Path(toc_pdf).read_bytes()))
+                toc_pages = list(toc_reader.pages)
+                toc_link_specs = toc_result.links
+        except AssembleError:
+            raise
+        except Exception as e:
+            import sys
+            print(
+                f"[assembler] WARNING: generated table of contents skipped: {e}",
+                file=sys.stderr,
+            )
+            toc_pages = []
+            toc_link_specs = ()
+        finally:
+            _rmtree_retry(toc_work)
+
+    # Add pages in order: cover, generated TOC, then body
     check_timeout()
     for p in cover_pages:
         writer.add_page(p)
+    toc_writer_pages = []
+    for p in toc_pages:
+        toc_page = writer.add_page(p)
+        # Drop the placeholder links Chromium generated for the local
+        # toc.xhtml file; real page destinations are added below.
+        if toc_page.get(NameObject("/Annots")) is not None:
+            toc_page[NameObject("/Annots")] = ArrayObject()
+        toc_writer_pages.append(toc_page)
     for p in reader.pages:
         writer.add_page(p)
 
@@ -444,20 +600,66 @@ def assemble(
     # keeps heading levels and page numbers accurate. Fall back to the flat
     # anchor-based outline when the CLI renderer produced no outline.
     check_timeout()
-    cover_offset = len(cover_pages)
+    page_offset = len(cover_pages) + len(toc_pages)
     outline_count = 0
-    try:
-        outline_count = _copy_outline(writer, reader, cover_offset)
-    except Exception:
-        outline_count = 0
+    if outline_source == "ncx" and toc_anchors:
+        outline_count = _build_outline_from_toc(
+            writer,
+            toc_anchors,
+            _build_page_index(page_texts),
+            page_offset=page_offset,
+        )
+    else:
+        try:
+            outline_count = _copy_outline(writer, reader, page_offset)
+        except Exception:
+            outline_count = 0
     if outline_count == 0:
         _add_outline(
             writer,
             reader,
             book,
-            cover_offset=cover_offset,
+            cover_offset=page_offset,
             page_texts=page_texts,
         )
+
+    # --- Clickable TOC rows ---
+    if toc_pages and toc_link_specs:
+        # pypdf's Link annotation stores the destination as an integer page
+        # number; PDF readers expect an explicit page *reference* here, so the
+        # annotation is appended by hand (add_annotation rewrites /Dest).
+        from pypdf.generic import (
+            ArrayObject,
+            DictionaryObject,
+            NumberObject,
+            RectangleObject,
+        )
+
+        base = len(cover_pages)
+        for spec in toc_link_specs:
+            try:
+                page = toc_writer_pages[spec.toc_page_index]
+                target_ref = writer.pages[spec.target_page_index].indirect_reference
+                annotation = DictionaryObject(
+                    {
+                        NameObject("/Type"): NameObject("/Annot"),
+                        NameObject("/Subtype"): NameObject("/Link"),
+                        NameObject("/Rect"): RectangleObject(spec.rect),
+                        NameObject("/Border"): ArrayObject([NumberObject(0)] * 3),
+                        NameObject("/P"): page.indirect_reference,
+                        NameObject("/Dest"): ArrayObject(
+                            [target_ref, NameObject("/Fit")]
+                        ),
+                    }
+                )
+                ref = writer._add_object(annotation)
+                annots = page.get(NameObject("/Annots"))
+                if annots is None:
+                    page[NameObject("/Annots")] = ArrayObject([ref])
+                else:
+                    annots.append(ref)
+            except Exception:
+                continue
 
     # --- Metadata ---
     check_timeout()

@@ -3,5 +3,6 @@ lxml==6.0.2
 pypdf==6.13.3
 pikepdf==10.8.0
 fonttools==4.61.1
+pymupdf==1.27.2
 PySide6==6.11.1
 websocket-client==1.9.0

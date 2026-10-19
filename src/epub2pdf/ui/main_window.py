@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 
 from .drop_zone import DropZone
 from .log_panel import LogPanel
+from . import shell
 from .task_row import TaskRow
 from ..core.orchestrator import ConversionTask, Orchestrator
 
@@ -70,11 +71,16 @@ class MainWindow(QMainWindow):
         self.change_out_btn.clicked.connect(self._on_change_output_dir)
         toolbar.addWidget(self.change_out_btn)
 
+        self.open_out_btn = QPushButton("打开输出目录")
+        self.open_out_btn.clicked.connect(self._on_open_output_dir)
+        toolbar.addWidget(self.open_out_btn)
+
         self.clear_done_btn = QPushButton("清空已完成")
         self.clear_done_btn.clicked.connect(self._on_clear_done)
         toolbar.addWidget(self.clear_done_btn)
 
         outer.addLayout(toolbar)
+        self._refresh_toolbar_state()
 
         # --- Task list ---
         self.task_list_holder = QWidget()
@@ -130,6 +136,25 @@ class MainWindow(QMainWindow):
         if d:
             self._settings.setValue("output_dir", d)
             self.output_label.setText(self._output_dir_text())
+            self._refresh_toolbar_state()
+
+    def _current_output_dir(self) -> str:
+        return self._settings.value("output_dir", "") \
+               or str(Path.home() / "Documents" / "EpubToPdf")
+
+    def _refresh_toolbar_state(self) -> None:
+        """Enable the folder button only when the output directory exists."""
+        self.open_out_btn.setEnabled(os.path.isdir(self._current_output_dir()))
+
+    def _on_open_output_dir(self) -> None:
+        target = self._current_output_dir()
+        if not shell.open_directory(target):
+            QMessageBox.information(
+                self,
+                "打开输出目录",
+                f"目录不存在或无法打开：\n{target}\n\n转换一个文件后目录会自动创建。",
+            )
+        self._refresh_toolbar_state()
 
     def _on_clear_done(self) -> None:
         for task_id, row in list(self._task_rows.items()):
@@ -211,6 +236,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             f"活跃: {active}  任务总数: {queued}  最大并发: {self._thread_pool.maxThreadCount()}"
         )
+        self._refresh_toolbar_state()
 
     # ---------- Window lifecycle ----------
 

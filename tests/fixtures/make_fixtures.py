@@ -112,29 +112,41 @@ def build_basic() -> Path:
 
 
 def build_cjk() -> Path:
-    """20 Chinese chapters; each chapter has h2/h3 subsections for nested outline."""
+    """20 Chinese chapters; each has h2/h3 subsections and a fragment TOC."""
     book = _new_book("fixture-cjk", "中文测试书", language="zh-CN")
     style = _add_style(book)
 
     chapters = []
+    toc_nodes = []
     for index in range(1, 21):
         title = f"第{index}章 测试标题{index}"
-        sections = []
+        sections_html = []
+        child_links = []
         for section in range(1, 3):
-            sections.append(f"<h2>第{index}章第{section}节</h2>")
-            sections.append(f"<p>这是第{index}章第{section}节的正文，用于验证中文排版与书签层级。{'内容' * 30}</p>")
-            sections.append(f"<h3>第{index}章第{section}节小节</h3>")
-            sections.append(f"<p>小节正文，重复字符以增加页面高度。{'小节' * 40}</p>")
+            heading_id = f"cjk{index:02d}-s{section}"
+            sections_html.append(f'<h2 id="{heading_id}">第{index}章第{section}节</h2>')
+            sections_html.append(f"<p>这是第{index}章第{section}节的正文，用于验证中文排版与书签层级。{'内容' * 30}</p>")
+            sections_html.append(f"<h3>第{index}章第{section}节小节</h3>")
+            sections_html.append(f"<p>小节正文，重复字符以增加页面高度。{'小节' * 40}</p>")
+            child_links.append(
+                epub.Link(
+                    f"cjk{index:02d}.xhtml#{heading_id}",
+                    f"第{index}章第{section}节",
+                    heading_id,
+                )
+            )
         chapter = epub.EpubHtml(title=title, file_name=f"cjk{index:02d}.xhtml", lang="zh-CN")
         chapter.content = (
             "<html><head><title>%s</title></head><body><h1>%s</h1>%s</body></html>"
-            % (title, title, "".join(sections))
+            % (title, title, "".join(sections_html))
         )
         chapter.add_item(style)
         book.add_item(chapter)
         chapters.append(chapter)
+        section = epub.Section(title, chapter.file_name)
+        toc_nodes.append((section, child_links))
 
-    book.toc = [epub.Link(ch.file_name, ch.title, ch.file_name) for ch in chapters]
+    book.toc = toc_nodes
     book.spine = ["nav", *chapters]
     _add_ncx_nav(book)
     return _write(book, "cjk.epub")
@@ -162,9 +174,36 @@ def build_fontsplit() -> Path:
     return _write(book, "fontsplit.epub")
 
 
+SVG_COVER = b"""<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="450" viewBox="0 0 300 450">
+  <rect width="300" height="450" fill="#cc2222"/>
+  <rect x="30" y="30" width="240" height="390" fill="#2266cc"/>
+  <text x="150" y="230" font-size="28" text-anchor="middle" fill="#ffffff">SVG Cover</text>
+</svg>
+"""
+
+
+def build_svgcover() -> Path:
+    """Book whose cover image is SVG (regression for the blank-cover bug)."""
+    book = _new_book("fixture-svgcover", "SVG Cover Fixture")
+    style = _add_style(book)
+    chapter = epub.EpubHtml(title="One Chapter", file_name="only.xhtml", lang="en")
+    chapter.content = (
+        "<html><head><title>One Chapter</title></head><body>"
+        "<h1>One Chapter</h1><p>body text</p></body></html>"
+    )
+    chapter.add_item(style)
+    book.add_item(chapter)
+    book.set_cover("cover.svg", SVG_COVER, create_page=True)
+    book.toc = [epub.Link(chapter.file_name, chapter.title, "only")]
+    book.spine = ["nav", chapter]
+    _add_ncx_nav(book)
+    return _write(book, "svgcover.epub")
+
+
 def main() -> None:
     FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
-    for builder in (build_basic, build_cjk, build_fontsplit):
+    for builder in (build_basic, build_cjk, build_fontsplit, build_svgcover):
         path = builder()
         print(f"wrote {path} ({path.stat().st_size} bytes)")
 

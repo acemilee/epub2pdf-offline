@@ -45,7 +45,7 @@ def test_convert_passes_total_timeout_to_render_and_assemble(monkeypatch):
     def fake_normalize(parsed_book, work_dir):
         path = Path(work_dir) / "book.html"
         path.write_text("<html><body>Hello</body></html>", encoding="utf-8")
-        return str(path)
+        return cli.normalizer.NormalizeResult(html_path=str(path))
 
     def fake_render(html_path, pdf_path, *, timeout, cancel_check=None):
         calls["render_timeout"] = timeout

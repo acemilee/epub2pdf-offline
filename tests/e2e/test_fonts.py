@@ -112,7 +112,7 @@ def test_epub_embedded_font_is_used_by_chromium(tmp_path):
 
     epub_path = _embedded_webfont_epub(tmp_path)
     book = parse(str(epub_path))
-    html_path = normalize(book, str(tmp_path / "work"))
+    html_path = normalize(book, str(tmp_path / "work")).html_path
 
     html = Path(html_path).read_text(encoding="utf-8")
     assert "fonts/web.ttf" in html

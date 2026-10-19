@@ -380,30 +380,31 @@ def _parse_toc(toc) -> list[TocNode]:
         if isinstance(node, tuple):
             sec, links = node[0], (node[1] if len(node) > 1 else [])
             section_title = getattr(sec, "title", "") or ""
-            children = []
+            section_href = _href_to_str(getattr(sec, "href", ""))
+            child_nodes: list[TocNode] = []
             for child in getattr(sec, "children", []) or []:
-                children.extend(walk(child))
-            nodes: list[TocNode] = []
+                child_nodes.extend(walk(child))
             if isinstance(links, (list, tuple)) and links:
                 for i, link in enumerate(links):
+                    # Nested (Section, [Link, ...]) tuples appear inside the
+                    # children list of a top-level section; recurse into them
+                    # instead of stringifying the tuple into a bogus href.
+                    if isinstance(link, (tuple, list)):
+                        child_nodes.extend(walk(link))
+                        continue
                     href = _href_to_str(link)
                     title = getattr(link, "title", "") or section_title or f"Section {i+1}"
-                    # Attach children only to the FIRST sub-link so we
-                    # don't duplicate the subtree under every link.
-                    nodes.append(TocNode(
-                        title=str(title),
-                        href=href,
-                        children=children if i == 0 else [],
-                    ))
-            else:
-                # No explicit links — use section's own href as fallback
-                href = _href_to_str(getattr(sec, "href", ""))
-                nodes.append(TocNode(
+                    child_nodes.append(TocNode(title=str(title), href=href))
+            if section_href:
+                # The section itself is a real destination (chapter start);
+                # keep it as the parent of its sub-entries so the generated
+                # TOC page has one row per chapter plus one per section.
+                return [TocNode(
                     title=str(section_title),
-                    href=href,
-                    children=children,
-                ))
-            return nodes
+                    href=section_href,
+                    children=child_nodes,
+                )]
+            return child_nodes
 
         # Plain Section with .title / .href / .children
         if hasattr(node, "title"):

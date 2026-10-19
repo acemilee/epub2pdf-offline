@@ -41,6 +41,7 @@ def convert(
     timeout: int | None = None,
     progress_cb=None,
     cancel_check=None,
+    outline_source: str = "chromium",
 ) -> str:
     """Convert one .epub to .pdf. Returns the output path.
 
@@ -128,7 +129,8 @@ def convert(
         stage_started = time.monotonic()
         # ----- Normalize -----
         log("[2/4] normalizing content ...")
-        html_path = normalizer.normalize(book, work_dir)
+        normalize_result = normalizer.normalize(book, work_dir)
+        html_path = normalize_result.html_path
         html_size = os.path.getsize(html_path)
         log(f"       html = {html_path}  ({_human_size(html_size)})")
 
@@ -173,6 +175,8 @@ def convert(
             book=book,
             cover_image_bytes=cover_bytes,
             deadline=deadline,
+            toc_anchors=normalize_result.toc_anchors,
+            outline_source=outline_source,
         )
         timings["assemble"] = time.monotonic() - stage_started
         elapsed = time.time() - started
@@ -212,6 +216,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="total conversion timeout in seconds (0 = no total timeout)")
     ap.add_argument("--debug", action="store_true",
                     help="show a full traceback on error")
+    ap.add_argument("--outline-source", choices=("chromium", "ncx"),
+                    default="chromium",
+                    help="bookmark source: Chromium headings (default) or EPUB TOC")
     args = ap.parse_args(argv)
 
     try:
@@ -222,6 +229,7 @@ def main(argv: list[str] | None = None) -> int:
             with_cover=not args.no_cover,
             quiet=args.quiet,
             timeout=args.timeout or None,
+            outline_source=args.outline_source,
         )
         return 0
     except ConversionCancelled:

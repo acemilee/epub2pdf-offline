@@ -354,3 +354,85 @@ def test_dedupe_title_collapses_exactly_repeated_chromium_titles():
     assert assembler._dedupe_title("中国社会各阶级的分析 *中国社会各阶级的分析 *") == "中国社会各阶级的分析 *"
     assert assembler._dedupe_title("AlphaBeta") == "AlphaBeta"
     assert assembler._dedupe_title("哈哈哈") == "哈哈哈"
+
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        (b"\x89PNG\r\n\x1a\nrest", ".png"),
+        (b"\xff\xd8\xffrest", ".jpg"),
+        (b"GIF89arest", ".gif"),
+        (b"RIFF\0\0\0\0WEBPrest", ".webp"),
+        (b"BMrest", ".bmp"),
+        (b"II*\x00rest", ".tiff"),
+        (b"MM\x00*rest", ".tiff"),
+        (b"\x00\x00\x01\x00rest", ".ico"),
+        (b"\x00\x00\x00\x18ftypavifrest", ".avif"),
+        (b"\x00\x00\x00\x18ftypavisrest", ".avif"),
+        (b"<?xml version=\"1.0\"?><svg xmlns=\"http://www.w3.org/2000/svg\"/>", ".svg"),
+        (b"\xef\xbb\xbf  <svg xmlns=\"http://www.w3.org/2000/svg\"/>", ".svg"),
+    ],
+)
+def test_guess_image_ext_detects_magic_bytes(data, expected):
+    assert assembler._guess_image_ext(data) == expected
+
+
+def test_guess_image_ext_falls_back_to_jpg_for_unknown_bytes():
+    assert assembler._guess_image_ext(b"not-an-image") == ".jpg"
+
+def _toc_anchor(anchor_id, title, level, href="chapter.xhtml"):
+    from epub2pdf.core.normalizer import TocAnchor
+
+    return TocAnchor(
+        title=title,
+        level=level,
+        href=href,
+        fragment="",
+        anchor_id=anchor_id,
+    )
+
+
+class _FakeOutlineWriter:
+    def __init__(self):
+        self.calls = []
+
+    def add_outline_item(self, title, page, parent=None):
+        item = object()
+        self.calls.append((title, page, parent, item))
+        return item
+
+
+def test_build_outline_from_toc_uses_levels_and_page_offset():
+    writer = _FakeOutlineWriter()
+    anchors = (
+        _toc_anchor("A", "Chapter One", 0),
+        _toc_anchor("B", "Section 1.1", 1),
+        _toc_anchor("C", "Sub 1.1.1", 2),
+        _toc_anchor("D", "Section 1.2", 1),
+        _toc_anchor("E", "Chapter Two", 0),
+    )
+    anchor_pages = {"A": 0, "B": 1, "C": 2, "D": 3, "E": 4}
+
+    count = assembler._build_outline_from_toc(
+        writer, anchors, anchor_pages, page_offset=2
+    )
+
+    assert count == 5
+    titles = [call[0] for call in writer.calls]
+    pages = [call[1] for call in writer.calls]
+    parents = [call[2] for call in writer.calls]
+    items = [call[3] for call in writer.calls]
+    assert titles == ["Chapter One", "Section 1.1", "Sub 1.1.1", "Section 1.2", "Chapter Two"]
+    assert pages == [2, 3, 4, 5, 6]
+    assert parents[0] is None
+    assert parents[1] is items[0]
+    assert parents[2] is items[1]
+    assert parents[3] is items[0]
+    assert parents[4] is None
+
+
+def test_build_outline_from_toc_skips_unresolved_anchors():
+    writer = _FakeOutlineWriter()
+    anchors = (_toc_anchor("A", "Chapter One", 0), _toc_anchor("Z", "Missing", 0))
+    count = assembler._build_outline_from_toc(writer, anchors, {"A": 0})
+    assert count == 1
+    assert [call[0] for call in writer.calls] == ["Chapter One"]

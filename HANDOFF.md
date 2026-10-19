@@ -8,7 +8,7 @@
 | 项 | 值 |
 | --- | --- |
 | 当前版本 | **v1.0.1**（2026-10-19） |
-| 代码基线 | 工作区提交（发布 tag `v1.0.1`）；上一版 `v1.0` = commit `752cf64` |
+| 代码基线 | 发布提交 **`6602927`**（tag `v1.0.1`）；上一版 `v1.0` = commit `752cf64` |
 | 运行环境 | Windows 10/11 + Microsoft Edge（本机 **155.0.4283.62**） |
 | 开发解释器 | `F:\python313\python.exe`（3.13.9，依赖齐全，含 pytest / pymupdf / pyinstaller）；**仓库内无 `.venv`** |
 | 当前计划 | [docs/plans/v1.0.1.md](docs/plans/v1.0.1.md)（v0.3，已执行） |
@@ -114,5 +114,5 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 
 ## 9. 变更记录（只留一行摘要，细节见 docs/lessons.md）
 
-- **2026-10-19 v1.0.1**：修复目录页下划线；书签改为 Chromium 多级大纲（CDP 主线 + 锚点兜底）；字体全书并集 + webfont + PS 名；封面 contain；取消/@charset/调试/阶段耗时；补单元+E2E 测试基建；真实书 296s→~65s。
+- **2026-10-19 v1.0.1**（commit `6602927`，tag `v1.0.1`）：修复目录页下划线；书签改为 Chromium 多级大纲（CDP 主线 + 锚点兜底）；字体全书并集 + webfont + PS 名；封面 contain；取消/@charset/调试/阶段耗时；补单元+E2E 测试基建；真实书 296s→66.9s。
 - **2026-10-19 v1.0.0 基线**（commit `752cf64`，tag `v1.0`）：GUI+CLI+Edge 渲染+封面+锚点书签+字体补写初版。

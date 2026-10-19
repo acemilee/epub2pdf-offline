@@ -8,7 +8,7 @@
 | 项 | 值 |
 | --- | --- |
 | 当前版本 | **v1.1.1**（2026-10-20，bugfix：不再继承 EPUB 的 `@page` 页边距） |
-| 代码基线 | 发布提交 **tag `v1.1.1`**（hash 见 `git log`）；上一版 `v1.1.0` = `0b04e48`，`v1.0.1` = `6602927` |
+| 代码基线 | 发布提交 **`512806f`**（tag `v1.1.1`）；上一版 `v1.1.0` = `0b04e48`，`v1.0.1` = `6602927` |
 | 运行环境 | Windows 10/11 + Microsoft Edge（本机 **155.0.4283.62**） |
 | 开发解释器 | `F:\python313\python.exe`（3.13.9，依赖齐全）；**仓库内没有可用的 `.venv`** |
 | 当前计划 | [docs/plans/v1.1.1.md](docs/plans/v1.1.1.md)（v0.2，**已执行完成**）；上一版 [docs/plans/v1.1.md](docs/plans/v1.1.md)（v0.3，已执行完成） |
@@ -106,7 +106,7 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 - 《毛泽东选集》：修复前后均 **1381 页**、书签 708 条/5 层、Type0 缺嵌入 0，逐页边距一致；9 个右边界 39.71pt 页为基线已有，非本修复引入。
 - `Spec-Driven AI Engineering`：同代码基线（v1.1.0 `0b04e48`）与 v1.1.1 均 **303 页**、左边距 45.34pt；用户旧产物 299 页来自更早版本/不同机器，不能作基线（计划 §10 差异 1）。
 - 测试：`pytest -q` **83 项全绿**（e2e 14 项真实 Edge）；`pytest -q -m e2e` 14 passed。
-- 打包：`dist\EpubToPdf\EpubToPdf.exe` 重新构建；`--cli` 与 GUI smoke 见 §5 v1.1.0 记录（命令相同）。
+- 打包：`dist\EpubToPdf\EpubToPdf.exe` 重新构建（12,750,156 B，01:53；onedir，需与 `_internal/` 同目录）；`--cli` 转 `zeromargin.epub` → 5 页 / 2.2 s / 边距坏页 0；转 `Systematic Trading` → 241 页 / 11.1 s / 边距坏页 0（minL 44.34 / minR 42.58）；GUI 启动日志 `shown winId=… visible=True`。
 
 **v1.1.0**
 

@@ -1,6 +1,7 @@
 import shutil
 from pathlib import Path
 
+from epub2pdf.core import normalizer
 from epub2pdf.core.normalizer import normalize
 from epub2pdf.core.parser import EpubBook, EpubChapter
 
@@ -122,7 +123,7 @@ def test_normalize_uses_asset_map_for_duplicate_image_basenames():
     assert 'src="assets/dup_1.jpg"' in rendered
 
 
-def test_normalize_places_anchor_inside_first_heading_to_avoid_blank_bookmark_page():
+def test_normalize_places_anchor_after_first_heading_to_keep_outline_title_clean():
     chapter_html = (
         "<html><body>"
         '<section class="level1"><h1>Chapter One</h1><p>Body.</p></section>'
@@ -157,8 +158,12 @@ def test_normalize_places_anchor_inside_first_heading_to_avoid_blank_bookmark_pa
     rendered = Path(html_path).read_text(encoding="utf-8")
 
     assert "<section class=\"chapter\" id=\"ch1\"" in rendered
-    assert "<h1>Chapter One<span class=\"epub-anchor\"" in rendered
-    assert "EPBPFANCHOR_ch1_EPBPFANCHOR_END</span></h1>" in rendered
+    # The marker must be a sibling *after* the heading so Chromium's PDF
+    # outline generator sees only the clean heading text.
+    assert "<h1>Chapter One</h1>" in rendered
+    assert "</h1><span class=\"epub-anchor\"" in rendered
+    assert "EPBPFANCHOR_ch1_EPBPFANCHOR_END</span>" in rendered
+    assert "<h1>Chapter One<span" not in rendered
     assert "h1 { page-break-before: always; }" in rendered
     assert ".chapter h1:first-child" in rendered
     chapter_start = rendered.index('<section class="chapter" id="ch1"')
@@ -208,6 +213,52 @@ def test_normalize_allows_pre_blocks_to_split_across_pages():
     assert "<pre>line 1" in rendered
 
 
+def test_normalize_removes_link_underline_and_link_color_from_epub_anchor_styles():
+    """Printed pages contain EPUB nav/TOC pages whose <a> elements would keep
+    the browser's default link underline + blue color. Those links are not
+    clickable in the generated PDF, so the print styles must neutralize them,
+    and the rule must win over EPUB-provided CSS (which may set underline)."""
+    chapter_html = (
+        "<html><body>"
+        '<nav epub:type="toc"><h1>Contents</h1>'
+        '<ol><li><a href="ch2.xhtml">Chapter Two</a></li></ol></nav>'
+        "</body></html>"
+    )
+    book = EpubBook(
+        title="TOC sample",
+        author="Tester",
+        language="en",
+        chapters=[
+            EpubChapter(
+                id="nav",
+                href="Text/nav.xhtml",
+                title="Table of Contents",
+                content_html=chapter_html,
+                is_nav=True,
+            )
+        ],
+        images={},
+        fonts={},
+        styles={"style.css": b"a { text-decoration: underline; color: #06c; }"},
+        cover_image=None,
+        toc=[],
+    )
+
+    work_dir = Path("tests_tmp/normalizer_toc_links")
+    shutil.rmtree(work_dir, ignore_errors=True)
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    html_path = normalize(book, str(work_dir))
+    rendered = Path(html_path).read_text(encoding="utf-8")
+
+    assert "text-decoration: none !important" in rendered
+    assert "color: inherit !important" in rendered
+    # The neutralizing rule must come after the inlined EPUB stylesheet.
+    epub_rule = rendered.index("a { text-decoration: underline; color: #06c; }")
+    neutralizer = rendered.index("text-decoration: none !important")
+    assert neutralizer > epub_rule
+
+
 def test_normalize_replaces_nbsp_artifacts_with_regular_spaces():
     chapter_html = (
         "<html><body>"
@@ -247,3 +298,48 @@ def test_normalize_replaces_nbsp_artifacts_with_regular_spaces():
     assert "rich. " in rendered
     assert "17.   Relative strength" in rendered
     assert "legacy   artifact" in rendered
+
+def test_normalize_skips_synthetic_title_when_heading_differs_only_by_whitespace():
+    chapter_html = (
+        "<html><body>"
+        '<h3><span>Chapter One</span><a href="#n1">*</a></h3><p>Body.</p>'
+        "</body></html>"
+    )
+    book = EpubBook(
+        title="Whitespace sample",
+        author="Tester",
+        language="en",
+        chapters=[
+            EpubChapter(
+                id="ch1",
+                href="Text/ch1.xhtml",
+                title="Chapter One *",
+                content_html=chapter_html,
+            )
+        ],
+        images={},
+        fonts={},
+        styles={},
+        cover_image=None,
+        toc=[],
+    )
+    work_dir = Path("tests_tmp/normalizer_synthetic_whitespace")
+    shutil.rmtree(work_dir, ignore_errors=True)
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    rendered = Path(normalize(book, str(work_dir))).read_text(encoding="utf-8")
+
+    assert "chapter-title synthetic" not in rendered
+
+def test_concat_css_drops_misplaced_charset_rules():
+    css = normalizer._concat_css(
+        {
+            "a.css": b'@charset "utf-8";\nbody{color:red}',
+            "b.css": b'@charset "iso-8859-1";\np{color:blue}',
+        }
+    )
+
+    assert "@charset" not in css.lower()
+    assert "color:red" in css
+    assert "color:blue" in css
+

@@ -63,6 +63,12 @@ if __name__ == "__main__":
         _append_log("frozen_gui: starting")
         _prepare_dll_paths()
         _append_log("frozen_gui: dll paths prepared")
+        if "--cli" in sys.argv:
+            sys.argv.remove("--cli")
+            from epub2pdf.cli import main as cli_main
+
+            _append_log("frozen_gui: running CLI")
+            raise SystemExit(cli_main())
         from epub2pdf.app import main
 
         _append_log("frozen_gui: imported app main")

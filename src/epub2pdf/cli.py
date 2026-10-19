@@ -99,6 +99,8 @@ def convert(
     os.makedirs(work_dir, exist_ok=True)
 
     started = time.time()
+    timings: dict[str, float] = {}
+    stage_started = time.monotonic()
 
     try:
         check_cancel()
@@ -120,8 +122,10 @@ def convert(
             log(f"       cover  = {book.cover_image}")
 
         emit("parsing", 25)
+        timings["parse"] = time.monotonic() - stage_started
 
         check_cancel()
+        stage_started = time.monotonic()
         # ----- Normalize -----
         log("[2/4] normalizing content ...")
         html_path = normalizer.normalize(book, work_dir)
@@ -129,17 +133,29 @@ def convert(
         log(f"       html = {html_path}  ({_human_size(html_size)})")
 
         emit("normalizing", 35)
+        timings["normalize"] = time.monotonic() - stage_started
 
         check_cancel()
+        stage_started = time.monotonic()
         # ----- Render -----
         log("[3/4] rendering PDF via msedge headless ...")
         raw_pdf = os.path.join(work_dir, "raw.pdf")
-        renderer.render(html_path, raw_pdf, timeout=remaining_timeout(300))
+        try:
+            renderer.render(
+                html_path,
+                raw_pdf,
+                timeout=remaining_timeout(300),
+                cancel_check=lambda: bool(cancel_check and cancel_check()),
+            )
+        except renderer.RendererCancelled as e:
+            raise ConversionCancelled("cancelled by user") from e
         log(f"       pdf  = {raw_pdf}  ({_human_size(os.path.getsize(raw_pdf))})")
 
         emit("rendering", 80)
+        timings["render"] = time.monotonic() - stage_started
 
         check_cancel()
+        stage_started = time.monotonic()
         # ----- Assemble -----
         log("[4/4] assembling final PDF ...")
         cover_bytes = None
@@ -158,7 +174,10 @@ def convert(
             cover_image_bytes=cover_bytes,
             deadline=deadline,
         )
+        timings["assemble"] = time.monotonic() - stage_started
         elapsed = time.time() - started
+        stage_summary = "  ".join(f"{k}={v:.2f}s" for k, v in timings.items())
+        log(f"       stages: {stage_summary}")
         log(f"       done.  pages={page_count}  time={elapsed:.1f}s  "
             f"size={_human_size(out_path.stat().st_size)}")
         emit("done", 100)
@@ -191,6 +210,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--quiet", action="store_true", help="suppress progress output")
     ap.add_argument("--timeout", type=int, default=0,
                     help="total conversion timeout in seconds (0 = no total timeout)")
+    ap.add_argument("--debug", action="store_true",
+                    help="show a full traceback on error")
     args = ap.parse_args(argv)
 
     try:
@@ -203,9 +224,18 @@ def main(argv: list[str] | None = None) -> int:
             timeout=args.timeout or None,
         )
         return 0
+    except ConversionCancelled:
+        print("cancelled", file=sys.stderr)
+        return 130
     except (FileNotFoundError, RuntimeError, renderer.RendererError,
             assembler.AssembleError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+    except Exception as e:  # defensive: never crash with a bare traceback
+        if args.debug:
+            import traceback
+            traceback.print_exc()
+        print(f"ERROR: {e} (run with --debug for a traceback)", file=sys.stderr)
         return 1
 
 

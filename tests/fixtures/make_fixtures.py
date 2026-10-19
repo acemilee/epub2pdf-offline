@@ -1,0 +1,173 @@
+"""Generate the EPUB fixtures used by the end-to-end tests.
+
+Run from the repository root:
+
+    F:\\python313\\python.exe tests/fixtures/make_fixtures.py
+
+The script is idempotent: it rewrites the ``*.epub`` files next to itself.
+Fixtures contain only generated text/CSS and a 1x1 PNG; no third-party font
+files are embedded (plan v1.0.1, Q5).
+"""
+
+from __future__ import annotations
+
+import base64
+from pathlib import Path
+
+from ebooklib import epub
+
+FIXTURE_DIR = Path(__file__).resolve().parent
+
+# 1x1 transparent PNG.
+PNG_BYTES = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
+
+UNDERLINE_CSS = """
+body { font-family: "Segoe UI", sans-serif; }
+a, a:link, a:visited { color: #06c; text-decoration: underline; }
+.toc-list li { margin: 0.6em 0; }
+"""
+
+
+def _new_book(identifier: str, title: str, language: str = "en") -> epub.EpubBook:
+    book = epub.EpubBook()
+    book.set_identifier(identifier)
+    book.set_title(title)
+    book.set_language(language)
+    book.add_author("Fixture Author")
+    return book
+
+
+def _add_style(book: epub.EpubBook, css: str = UNDERLINE_CSS) -> epub.EpubItem:
+    style = epub.EpubItem(
+        uid="style_main",
+        file_name="style/main.css",
+        media_type="text/css",
+        content=css.encode("utf-8"),
+    )
+    book.add_item(style)
+    return style
+
+
+def _add_ncx_nav(book: epub.EpubBook) -> None:
+    book.add_item(epub.EpubNcx())
+    book.add_item(epub.EpubNav())
+
+
+def _write(book: epub.EpubBook, name: str) -> Path:
+    target = FIXTURE_DIR / name
+    epub.write_epub(str(target), book)
+    return target
+
+
+def build_basic() -> Path:
+    """3 chapters + a TOC page in the spine + one PNG image."""
+    book = _new_book("fixture-basic", "Basic Fixture Book")
+    style = _add_style(book)
+
+    chapters = []
+    for index, (title, marker) in enumerate(
+        [("Chapter One: Alpha", "alpha"), ("Chapter Two: Beta", "beta"), ("Chapter Three: Gamma", "gamma")],
+        start=1,
+    ):
+        chapter = epub.EpubHtml(
+            title=title,
+            file_name=f"chapter{index}.xhtml",
+            lang="en",
+        )
+        chapter.content = f"""<html><head><title>{title}</title></head><body>
+<h1>{title}</h1>
+<p>This is the {marker} chapter of the basic fixture.</p>
+<img src="images/pixel.png" alt="pixel"/>
+</body></html>"""
+        chapter.add_item(style)
+        book.add_item(chapter)
+        chapters.append(chapter)
+
+    toc_page = epub.EpubHtml(title="Table of Contents", file_name="toc.xhtml", lang="en")
+    toc_page.content = """<html><head><title>Table of Contents</title></head><body>
+<h1>Table of Contents</h1>
+<ol class="toc-list">
+  <li><a href="chapter1.xhtml">Chapter One: Alpha</a></li>
+  <li><a href="chapter2.xhtml">Chapter Two: Beta</a></li>
+  <li><a href="chapter3.xhtml">Chapter Three: Gamma</a></li>
+</ol>
+</body></html>"""
+    toc_page.add_item(style)
+    book.add_item(toc_page)
+
+    image = epub.EpubImage()
+    image.file_name = "images/pixel.png"
+    image.media_type = "image/png"
+    image.content = PNG_BYTES
+    book.add_item(image)
+
+    book.toc = [epub.Link("toc.xhtml", "Table of Contents", "toc")] + [
+        epub.Link(ch.file_name, ch.title, ch.file_name) for ch in chapters
+    ]
+    book.spine = ["nav", toc_page, *chapters]
+    _add_ncx_nav(book)
+    return _write(book, "basic.epub")
+
+
+def build_cjk() -> Path:
+    """20 Chinese chapters; each chapter has h2/h3 subsections for nested outline."""
+    book = _new_book("fixture-cjk", "中文测试书", language="zh-CN")
+    style = _add_style(book)
+
+    chapters = []
+    for index in range(1, 21):
+        title = f"第{index}章 测试标题{index}"
+        sections = []
+        for section in range(1, 3):
+            sections.append(f"<h2>第{index}章第{section}节</h2>")
+            sections.append(f"<p>这是第{index}章第{section}节的正文，用于验证中文排版与书签层级。{'内容' * 30}</p>")
+            sections.append(f"<h3>第{index}章第{section}节小节</h3>")
+            sections.append(f"<p>小节正文，重复字符以增加页面高度。{'小节' * 40}</p>")
+        chapter = epub.EpubHtml(title=title, file_name=f"cjk{index:02d}.xhtml", lang="zh-CN")
+        chapter.content = (
+            "<html><head><title>%s</title></head><body><h1>%s</h1>%s</body></html>"
+            % (title, title, "".join(sections))
+        )
+        chapter.add_item(style)
+        book.add_item(chapter)
+        chapters.append(chapter)
+
+    book.toc = [epub.Link(ch.file_name, ch.title, ch.file_name) for ch in chapters]
+    book.spine = ["nav", *chapters]
+    _add_ncx_nav(book)
+    return _write(book, "cjk.epub")
+
+
+def build_fontsplit() -> Path:
+    """One long chapter whose character set grows across pages (font subset union)."""
+    book = _new_book("fixture-fontsplit", "Font Split Fixture")
+    style = _add_style(book)
+
+    paragraphs = []
+    for start in range(0x4E00, 0x4E00 + 240):
+        paragraphs.append(f"<p>{chr(start)} 字符测试 {start:04X} ascii sample text</p>")
+    chapter = epub.EpubHtml(title="Font Split Chapter", file_name="fontsplit.xhtml", lang="zh-CN")
+    chapter.content = (
+        "<html><head><title>Font Split Chapter</title></head><body>"
+        "<h1>Font Split Chapter</h1>%s</body></html>" % "".join(paragraphs)
+    )
+    chapter.add_item(style)
+    book.add_item(chapter)
+
+    book.toc = [epub.Link(chapter.file_name, chapter.title, "fontsplit")]
+    book.spine = ["nav", chapter]
+    _add_ncx_nav(book)
+    return _write(book, "fontsplit.epub")
+
+
+def main() -> None:
+    FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
+    for builder in (build_basic, build_cjk, build_fontsplit):
+        path = builder()
+        print(f"wrote {path} ({path.stat().st_size} bytes)")
+
+
+if __name__ == "__main__":
+    main()

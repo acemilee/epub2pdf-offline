@@ -47,7 +47,7 @@ def test_convert_passes_total_timeout_to_render_and_assemble(monkeypatch):
         path.write_text("<html><body>Hello</body></html>", encoding="utf-8")
         return str(path)
 
-    def fake_render(html_path, pdf_path, *, timeout):
+    def fake_render(html_path, pdf_path, *, timeout, cancel_check=None):
         calls["render_timeout"] = timeout
         Path(pdf_path).write_bytes(b"%PDF fake")
 
@@ -78,7 +78,7 @@ def test_convert_raises_when_timeout_already_elapsed(monkeypatch):
     epub_path = tmp_path / "book.epub"
     epub_path.write_bytes(b"fake")
 
-    times = iter([100.0, 191.0])
+    times = iter([100.0, 100.0, 191.0])
     monkeypatch.setattr(cli.time, "monotonic", lambda: next(times))
 
     with pytest.raises(cli.ConversionTimeout):

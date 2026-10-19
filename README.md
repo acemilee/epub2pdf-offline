@@ -2,7 +2,7 @@
 
 A local Windows app for converting EPUB books to clean, readable PDF files.
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![Version](https://img.shields.io/badge/version-1.0.1-blue)
 ![License](https://img.shields.io/badge/license-AGPL--3.0--or--later-green)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
@@ -16,9 +16,14 @@ books to an online service.
 
 The converter focuses on practical reading quality:
 
-- Chinese and English text display correctly in common PDF readers.
-- Book covers are preserved when the EPUB provides one.
-- EPUB navigation is converted into PDF bookmarks.
+- Chinese and English text display correctly in common PDF readers; the fonts
+  used by the browser are embedded into the PDF, so text stays selectable and
+  searchable on other machines.
+- Book covers are preserved when the EPUB provides one; the artwork is scaled
+  down proportionally instead of being cropped.
+- EPUB navigation and the document's heading hierarchy become nested PDF
+  bookmarks (levels follow `h1`–`h6`; the fallback renderer produces a flat,
+  chapter-level outline).
 - Conversion runs locally and does not send your files anywhere.
 - The app processes one book at a time to keep large-book conversion stable.
 
@@ -81,16 +86,16 @@ CLI options:
 | `--keep-temp` | Keep intermediate files for troubleshooting. |
 | `--no-cover` | Do not insert the EPUB cover as the first PDF page. |
 | `--quiet` | Hide normal progress output. |
-| `--timeout` | Stop conversion after the given number of seconds. |
+| `--timeout` | Total conversion timeout in seconds (0 = no timeout). The CLI prints a per-stage timing summary; a large book (400+ chapters) can take several minutes. |
+| `--debug` | Print a full Python traceback when conversion fails. |
 
 ## Run From Source
 
 For users who want to run or modify the source code:
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
+# Use an existing Python 3.11+ installation; the repository does not ship a
+# virtual environment.
 python -m pip install -r requirements.txt
 python -m pip install -r requirements-dev.txt
 
@@ -98,8 +103,21 @@ $env:PYTHONPATH = "src"
 python run.py
 ```
 
-Main dependencies are listed in [requirements.txt](requirements.txt). Developer
-tools are listed in [requirements-dev.txt](requirements-dev.txt).
+`requirements.txt` is the single source of truth for runtime dependencies;
+`pyproject.toml` lists the same packages for packaging. Test dependencies
+(including PyMuPDF for PDF assertions) live in `requirements-dev.txt`.
+
+Run the fast unit suite with:
+
+```powershell
+python -m pytest -q
+```
+
+End-to-end tests actually launch Microsoft Edge and are opt-in:
+
+```powershell
+python -m pytest -q -m e2e
+```
 
 ## Build From Source
 
@@ -122,7 +140,14 @@ dist\EpubToPdf\EpubToPdf.exe
 - DRM-protected EPUB files cannot be converted.
 - Fixed-layout books such as comics, magazines, or heavily designed picture
   books may not keep their original layout perfectly.
-- Very large EPUB files may take longer to render.
+- Very large EPUB files may take longer to render. A 400-chapter book can take
+  several minutes; use `--timeout` with a generous value if you need a hard
+  limit.
+- If the PDF viewer shows a flat chapter list instead of a nested outline, the
+  Chrome DevTools route was unavailable and the fallback renderer was used. The
+  conversion itself still succeeded.
+- The EPUB's own navigation page (the table of contents) is kept as a normal
+  content page with print styling; it is not regenerated.
 
 ## Privacy
 

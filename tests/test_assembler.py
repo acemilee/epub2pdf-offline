@@ -40,7 +40,8 @@ def test_make_cover_pdf_uses_body_page_size_and_cover_fit(monkeypatch):
     assert cover_pdf == str(work_dir / "cover.pdf")
     html = (work_dir / "_cover.html").read_text(encoding="utf-8")
     assert "@page{size:8.500000in 11.000000in;margin:0;}" in html
-    assert "width:100vw;height:100vh;object-fit:cover;" in html
+    assert "object-fit:contain;" in html
+    assert "max-width:100%;max-height:100%" in html
     assert commands
     profile_args = [
         part for part in commands[0] if part.startswith("--user-data-dir=")
@@ -288,3 +289,68 @@ def test_assemble_fails_when_rendered_pdf_misses_end_marker(monkeypatch):
 
     assert "rendered PDF is incomplete" in str(exc.value)
     assert "document end marker" in str(exc.value)
+
+def test_anchor_matching_tolerates_spaces_between_characters():
+    class FakePage:
+        def __init__(self, text):
+            self._text = text
+
+        def extract_text(self):
+            return self._text
+
+    class FakeReader:
+        pages = [
+            FakePage("intro"),
+            FakePage("E P B P F A N C H O R _ c h 0 1 _ E P B P F A N C H O R _ E N D body"),
+        ]
+
+    found = assembler._find_anchor_pages(FakeReader(), {"ch01"})
+    assert found == {"ch01": 1}
+
+
+def test_end_marker_matching_tolerates_spaces_between_characters():
+    assert assembler.END_MARKER_RE.search("E P B P F E N D _ D O C U M E N T")
+
+
+def test_copy_outline_preserves_nesting_and_offsets_pages():
+    from io import BytesIO
+    from pypdf import PdfReader as RealReader, PdfWriter as RealWriter
+
+    raw_writer = RealWriter()
+    for _ in range(3):
+        raw_writer.add_blank_page(width=200, height=200)
+    top = raw_writer.add_outline_item("Top", 1)
+    raw_writer.add_outline_item("Child", 2, parent=top)
+    raw_buffer = BytesIO()
+    raw_writer.write(raw_buffer)
+    raw_buffer.seek(0)
+    raw_reader = RealReader(raw_buffer)
+
+    final_writer = RealWriter()
+    final_writer.add_blank_page(width=200, height=200)  # cover page
+    for _ in range(3):  # body pages copied from the raw PDF
+        final_writer.add_blank_page(width=200, height=200)
+    count = assembler._copy_outline(final_writer, raw_reader, page_offset=1)
+    assert count == 2
+
+    final_buffer = BytesIO()
+    final_writer.write(final_buffer)
+    final_buffer.seek(0)
+    final_reader = RealReader(final_buffer)
+    entries = []
+    def walk(items, level):
+        for item in items:
+            if isinstance(item, list):
+                walk(item, level + 1)
+            else:
+                entries.append((level, item.title, final_reader.get_destination_page_number(item)))
+    walk(final_reader.outline, 1)
+    assert [(lvl, title) for lvl, title, _ in entries] == [(1, "Top"), (2, "Child")]
+    # cover occupies page 0, so raw page 1 -> final page 2, raw page 2 -> final page 3
+    assert [page for _, _, page in entries] == [2, 3]
+
+def test_dedupe_title_collapses_exactly_repeated_chromium_titles():
+    assert assembler._dedupe_title("Chapter OneChapter One") == "Chapter One"
+    assert assembler._dedupe_title("中国社会各阶级的分析 *中国社会各阶级的分析 *") == "中国社会各阶级的分析 *"
+    assert assembler._dedupe_title("AlphaBeta") == "AlphaBeta"
+    assert assembler._dedupe_title("哈哈哈") == "哈哈哈"

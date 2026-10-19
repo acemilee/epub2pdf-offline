@@ -37,6 +37,9 @@ output/
 !tests/fixtures/**/*.epub
 !tests/fixtures/**/*.pdf
 
+# Local agent instructions (user preference: not tracked)
+AGENTS.md
+
 # Renderer profiles, work directories and manual diagnostics
 debug/
 ebook_work/

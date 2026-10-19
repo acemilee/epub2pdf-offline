@@ -88,7 +88,11 @@ class Orchestrator:
 
     def submit(self, task: ConversionTask) -> None:
         self._tasks[task.task_id] = task
+        task.signals.finished.connect(self._on_finished)
         self._pool.start(task)
+
+    def _on_finished(self, task_id: str, _success: bool, _result: object) -> None:
+        self._tasks.pop(task_id, None)
 
     def cancel(self, task_id: str) -> None:
         t = self._tasks.get(task_id)

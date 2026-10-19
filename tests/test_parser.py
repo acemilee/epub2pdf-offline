@@ -1,3 +1,4 @@
+import re
 import shutil
 import zipfile
 from pathlib import Path
@@ -120,7 +121,19 @@ def test_normalize_skips_svg_cover_and_does_not_render_internal_or_duplicate_tit
     assert "cover_xhtml" not in rendered
     assert 'class="chapter-title synthetic">Chapter One</h1>' not in rendered
     assert rendered.count("<h1>Chapter One") == 1
-    assert "EPBPFANCHOR_chapter_1_EPBPFANCHOR_END</span></h1>" in rendered
+    assert re.search(r'<h1>Chapter One</h1>\s*<span class="epub-anchor"', rendered)
+    assert "EPBPFANCHOR_chapter_1_EPBPFANCHOR_END</span>" in rendered
     assert '<section class="chapter" id="nav"' in rendered
     assert rendered.count("<h1>Contents") == 1
     assert "EPBPFANCHOR_nav_EPBPFANCHOR_END</span>" in rendered
+
+
+
+def test_extract_title_uses_first_heading_in_document_order_even_h3():
+    html = "<html><body><h3>Chapter Three</h3><h1>Later H1</h1></body></html>"
+    assert parser._extract_title_from_xhtml(html) == "Chapter Three"
+
+
+def test_extract_title_falls_back_to_html_title_when_no_heading():
+    html = "<html><head><title>Chapter Title</title></head><body><p>text</p></body></html>"
+    assert parser._extract_title_from_xhtml(html) == "Chapter Title"

@@ -63,7 +63,13 @@ _FONT_FILE_HINTS: dict[str, list[str]] = {
     "Calibri-Italic":       ["calibrii.ttf", "calibri.ttf"],
     "Calibri-BoldItalic":   ["calibriz.ttf", "calibri.ttf"],
     "TimesNewRoman":        ["times.ttf"],
+    "TimesNewRoman-Bold":   ["timesbd.ttf", "times.ttf"],
+    "TimesNewRoman-Italic": ["timesi.ttf", "times.ttf"],
+    "TimesNewRoman-BoldItalic": ["timesbi.ttf", "times.ttf"],
     "CourierNew":           ["cour.ttf"],
+    "CourierNew-Bold":      ["courbd.ttf", "cour.ttf"],
+    "CourierNew-Italic":    ["couri.ttf", "cour.ttf"],
+    "CourierNew-BoldItalic": ["courbi.ttf", "cour.ttf"],
     "Cambria":              ["cambria.ttc"],
     "Consolas":             ["consola.ttf"],
     "CascadiaCode":         ["cascadia code.ttf", "CascadiaCode.ttf"],
@@ -72,8 +78,27 @@ _FONT_FILE_HINTS: dict[str, list[str]] = {
 }
 
 
+# PostScript-style family names Chromium/Edge emits in /BaseFont but which do
+# not match the friendly family names used by ``_FONT_FILE_HINTS``.
+_PS_NAME_ALIASES: dict[str, str] = {
+    "ArialMT": "Arial",
+    "Arial-BoldMT": "Arial-Bold",
+    "Arial-ItalicMT": "Arial-Italic",
+    "Arial-BoldItalicMT": "Arial-BoldItalic",
+    "TimesNewRomanPSMT": "TimesNewRoman",
+    "TimesNewRomanPS-BoldMT": "TimesNewRoman-Bold",
+    "TimesNewRomanPS-ItalicMT": "TimesNewRoman-Italic",
+    "TimesNewRomanPS-BoldItalicMT": "TimesNewRoman-BoldItalic",
+    "CourierNewPSMT": "CourierNew",
+    "CourierNewPS-BoldMT": "CourierNew-Bold",
+    "CourierNewPS-ItalicMT": "CourierNew-Italic",
+    "CourierNewPS-BoldItalicMT": "CourierNew-BoldItalic",
+}
+
+
 def find_system_font(family: str) -> Optional[Path]:
     """Locate a TTF/TTC for the given font family name."""
+    family = _PS_NAME_ALIASES.get(family, family)
     hints = _FONT_FILE_HINTS.get(family) or _guess_from_family(family)
     if not hints:
         return None
@@ -264,6 +289,81 @@ def collect_gids_for_font_from_content(data: bytes) -> set[int]:
     return gids
 
 
+_TF_RE = re.compile(rb"/([^\s/\[\]<>(){}]+)\s+[-+]?[\d.]+\s+Tf")
+_SHOW_PATTERNS = (
+    re.compile(rb"\((?:\\.|[^()\\])*\)\s*Tj"),
+    re.compile(rb"<[0-9A-Fa-f]+>\s*Tj"),
+    re.compile(rb"\[(.*?)\]\s*TJ", re.DOTALL),
+)
+
+
+def _gids_for_show_token(token: bytes) -> set[int]:
+    """Decode the GIDs of a single text-showing operator token."""
+    if token.startswith(b"<"):
+        inner = token[1: token.rfind(b">")]
+        try:
+            return _bytes_to_gids(bytes.fromhex(inner.decode("ascii")))
+        except Exception:
+            return set()
+    if token.startswith(b"["):
+        gids: set[int] = set()
+        inner = token[1:]
+        for sm in re.finditer(rb"\((?:\\.|[^()\\])*\)", inner):
+            gids.update(_decode_pdf_string_gids(sm.group(0)[1:-1]))
+        for hm in re.finditer(rb"<[0-9A-Fa-f]+>", inner):
+            try:
+                gids.update(_bytes_to_gids(bytes.fromhex(hm.group(0)[1:-1].decode("ascii"))))
+            except Exception:
+                continue
+        return gids
+    inner = token[1: token.rfind(b")")]
+    return _decode_pdf_string_gids(inner)
+
+
+def _collect_gids_by_font_from_content(data: bytes) -> dict[str | None, set[int]]:
+    """Map each font resource name (without the leading ``/``) to its GIDs.
+
+    The ``Tf`` operator switches the active font, so a content stream is
+    scanned as an ordered event list: each text-showing operator is credited
+    to the font that was selected at that point. GIDs seen before any ``Tf``
+    are stored under ``None`` and treated as a safe superset by callers.
+    """
+    if not data:
+        return {}
+
+    events: list[tuple[int, str, object]] = []
+    for match in _TF_RE.finditer(data):
+        events.append((match.start(), "tf", match.group(1).decode("latin-1")))
+    for pattern in _SHOW_PATTERNS:
+        for match in pattern.finditer(data):
+            events.append((match.start(), "show", _gids_for_show_token(match.group(0))))
+    events.sort(key=lambda event: event[0])
+
+    current: str | None = None
+    result: dict[str | None, set[int]] = {}
+    for _position, kind, payload in events:
+        if kind == "tf":
+            current = str(payload)
+        else:
+            result.setdefault(current, set()).update(payload)  # type: ignore[arg-type]
+    return result
+
+
+def collect_gids_by_font_resource(page) -> dict[str | None, set[int]]:
+    """Collect per-font GIDs from a pikepdf page's content streams."""
+    contents = page.get("/Contents")
+    if contents is None:
+        return {}
+    data_parts: list[bytes] = []
+    streams = contents if isinstance(contents, pikepdf.Array) else [contents]
+    for stream in streams:
+        try:
+            data_parts.append(stream.read_bytes())
+        except Exception:
+            continue
+    return _collect_gids_by_font_from_content(b"\n".join(data_parts))
+
+
 def _decode_pdf_string_gids(raw: bytes) -> set[int]:
     """Decode a PDF literal-string body (between parens) into GIDs."""
     out: set[int] = set()
@@ -322,21 +422,19 @@ def _bytes_to_gids(data: bytes) -> set[int]:
 
 
 def collect_gids_for_font_pikepdf(page, font_resource_name: str) -> set[int]:
-    """Same as ``collect_gids_for_font`` but takes a pikepdf.Page and a
-    bare font key (without the leading '/')."""
-    contents = page.get("/Contents")
-    if contents is None:
-        return set()
+    """Return the GIDs shown with one font resource on a pikepdf page.
 
-    data_parts: list[bytes] = []
-    streams = contents if isinstance(contents, pikepdf.Array) else [contents]
-    for stream in streams:
-        try:
-            data_parts.append(stream.read_bytes())
-        except Exception:
-            continue
-
-    return collect_gids_for_font_from_content(b"\n".join(data_parts))
+    ``font_resource_name`` may include the leading ``/``; an empty/None value
+    returns the union of every font on the page.
+    """
+    by_font = collect_gids_by_font_resource(page)
+    if not font_resource_name:
+        union: set[int] = set()
+        for gids in by_font.values():
+            union |= gids
+        return union
+    name = str(font_resource_name).lstrip("/")
+    return set(by_font.get(name, set())) | set(by_font.get(None, set()))
 
 
 # ---------- PDF patching (pikepdf) ----------
@@ -349,84 +447,137 @@ def _family_from_basefont(basefont: str) -> str:
     return s
 
 
-def embed_missing_fonts(input_pdf: str, output_pdf: str, deadline: float | None = None) -> dict:
-    """Walk ``input_pdf`` and embed font files into every Type0 font that
-    currently lacks a ``/FontFile2`` stream.
+def _font_obj_key(font_obj) -> tuple:
+    """Stable identity for a PDF font object (shared across pages)."""
+    try:
+        generation = font_obj.objgen
+        if generation and generation != (0, 0):
+            return ("obj", generation[0], generation[1])
+    except Exception:
+        pass
+    return ("direct", id(font_obj))
 
-    Returns a stats dict: {family: status}.
+
+def _get_or_create_descriptor(pdf, font_obj, basefont: str):
+    desc_list = font_obj.get("/DescendantFonts")
+    if not desc_list:
+        return None
+    desc = desc_list[0]
+    descriptor = desc.get("/FontDescriptor")
+    if descriptor is None:
+        font_name = basefont if basefont.startswith("/") else f"/{basefont or 'Unknown'}"
+        descriptor = pdf.make_indirect(
+            pikepdf.Dictionary(
+                Type=pikepdf.Name("/FontDescriptor"),
+                FontName=pikepdf.Name(font_name),
+                Flags=32,
+            )
+        )
+        desc.FontDescriptor = descriptor
+    return descriptor
+
+
+def embed_missing_fonts(
+    input_pdf: str,
+    output_pdf: str,
+    deadline: float | None = None,
+) -> dict:
+    """Embed a subset of the matching Windows system font into every Type0
+    font that lacks a ``/FontFile2`` stream.
+
+    Phase 1 walks all pages and accumulates the *union* of GIDs each font
+    object renders anywhere in the document. Phase 2 subsets each font once
+    with that union. Embedding a per-page subset would leave glyphs that first
+    appear on later pages blank in other PDF viewers.
+
+    Returns a stats dict: ``{family: status}``.
     """
     def check_timeout() -> None:
         if deadline is not None and time.monotonic() >= deadline:
             raise TimeoutError("conversion timed out during font embedding")
 
-    stats: dict[str, str] = {}
-    font_cache: dict[str, Optional[bytes]] = {}
-
-    def _get_subset(family: str, gids: set[int]) -> Optional[bytes]:
-        if family in font_cache:
-            return font_cache[family]
-        path = find_system_font(family)
-        if path is None:
-            font_cache[family] = None
-            return None
-        data = subset_font_to_bytes(path, gids)
-        font_cache[family] = data
-        return data
+    stats_by_family: dict[str, list[str]] = {}
 
     with pikepdf.open(input_pdf) as pdf:
+        # Phase 1: collect the GID union per font object.
+        font_entries: dict[tuple, dict] = {}
         for page in pdf.pages:
             check_timeout()
             try:
                 font_dict = page.Resources.get("/Font")
             except (AttributeError, KeyError):
                 continue
-            if font_dict is None:
+            if not font_dict:
                 continue
-
+            gids_by_font = collect_gids_by_font_resource(page)
+            if not gids_by_font:
+                continue
             for font_key in list(font_dict.keys()):
-                check_timeout()
-                font_ref = font_dict[font_key]
-                try:
-                    font_obj = font_ref
-                except Exception:
-                    continue
+                font_obj = font_dict[font_key]
                 if str(font_obj.get("/Subtype")) != "/Type0":
                     continue
-
+                font_gids = set(gids_by_font.get(str(font_key).lstrip("/"), set()))
+                font_gids |= set(gids_by_font.get(None, set()))
+                if not font_gids:
+                    continue
                 basefont = str(font_obj.get("/BaseFont", ""))
                 family = _family_from_basefont(basefont)
-
-                desc_list = font_obj.get("/DescendantFonts")
-                if not desc_list:
-                    continue
-
-                desc = desc_list[0]
-                font_descriptor = desc.get("/FontDescriptor")
-                if font_descriptor is None:
-                    font_descriptor = pikepdf.Dictionary(
-                        Type=pikepdf.Name("/FontDescriptor"),
-                        FontName=pikepdf.Name(basefont),
-                        Flags=32,
+                key = _font_obj_key(font_obj)
+                entry = font_entries.get(key)
+                if entry is None:
+                    descriptor = _get_or_create_descriptor(pdf, font_obj, basefont)
+                    if descriptor is None:
+                        continue
+                    already_embedded = any(
+                        marker in descriptor
+                        for marker in ("/FontFile", "/FontFile2", "/FontFile3")
                     )
-                    desc.FontDescriptor = font_descriptor
-                if font_descriptor.get("/FontFile2") or font_descriptor.get("/FontFile3"):
-                    stats[family] = "already-embedded"
-                    continue
+                    entry = {
+                        "family": family,
+                        "descriptor": descriptor,
+                        "gids": set(),
+                        "embedded": already_embedded,
+                    }
+                    font_entries[key] = entry
+                if not entry["embedded"]:
+                    entry["gids"] |= font_gids
 
-                gids = collect_gids_for_font_pikepdf(page, font_key)
-                if not gids:
-                    stats[family] = "no-gids"
-                    continue
-
-                subset_bytes = _get_subset(family, gids)
-                if subset_bytes is None:
-                    stats[family] = "no-system-font"
-                    continue
-
-                font_descriptor.FontFile2 = pdf.make_stream(subset_bytes)
-                stats[family] = (
-                    f"embedded ({len(subset_bytes)} bytes, {len(gids)} gids)"
-                )
+        # Phase 2: subset each font once with the union of its GIDs.
+        for entry in font_entries.values():
+            check_timeout()
+            family = entry["family"]
+            if entry["embedded"]:
+                stats_by_family.setdefault(family, []).append("already-embedded")
+                continue
+            gids = entry["gids"]
+            if not gids:
+                stats_by_family.setdefault(family, []).append("no-gids")
+                continue
+            font_path = find_system_font(family)
+            if font_path is None:
+                stats_by_family.setdefault(family, []).append("no-system-font")
+                continue
+            subset_bytes = subset_font_to_bytes(font_path, gids)
+            if subset_bytes is None:
+                stats_by_family.setdefault(family, []).append("no-system-font")
+                continue
+            entry["descriptor"].FontFile2 = pdf.make_stream(subset_bytes)
+            stats_by_family.setdefault(family, []).append(
+                f"embedded ({len(subset_bytes)} bytes, {len(gids)} gids)"
+            )
 
         pdf.save(output_pdf)
+
+    stats: dict[str, str] = {}
+    for family, statuses in stats_by_family.items():
+        if "no-system-font" in statuses:
+            stats[family] = "no-system-font"
+        elif "no-gids" in statuses:
+            stats[family] = "no-gids"
+        elif all(status == "already-embedded" for status in statuses):
+            stats[family] = "already-embedded"
+        else:
+            stats[family] = next(
+                status for status in statuses if status.startswith("embedded")
+            )
     return stats

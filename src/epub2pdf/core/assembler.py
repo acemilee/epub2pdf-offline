@@ -9,11 +9,12 @@ Reads the raw PDF produced by msedge, enriches it with:
     the FontFile2 stream, which causes mojibake on any viewer that
     doesn't have Segoe UI / Microsoft YaHei installed)
 
-Bookmark strategy: the normalizer injects an invisible span with a
-unique marker ``EPBPFANCHOR_<chapter_id>`` at the top of every chapter.
-The assembler's ``_find_anchor_pages`` walks the rendered PDF text
-stream and locates which page each marker lands on, then calls
-``writer.add_outline_item`` to register a top-level entry.
+Bookmark strategy: the renderer asks Chromium for a real PDF outline
+(``generateDocumentOutline``); the assembler copies that outline into the final
+PDF, preserving heading levels and shifting page numbers past the cover page.
+When the raw PDF has no outline (CLI fallback path), the assembler falls back
+to locating the invisible ``EPBPFANCHOR_<chapter_id>`` markers embedded by the
+normalizer and building a flat outline from them.
 """
 from __future__ import annotations
 
@@ -34,15 +35,33 @@ from pypdf.generic import (
     RectangleObject,
 )
 
-from .normalizer import ANCHOR_SUFFIX, END_MARKER
+from .normalizer import ANCHOR_PREFIX, ANCHOR_SUFFIX, END_MARKER
 from .parser import EpubBook
 
-# Same prefix as in normalizer. Keep these in sync.
+
+def _spaced_literal(text: str) -> str:
+    """Regex matching ``text`` when Chromium inserts whitespace between glyphs.
+
+    Extracted page text from ``--print-to-pdf`` output can contain the anchor
+    marker as ``E P B P F A N C H O R _ …``; the regex must tolerate that.
+    """
+    return r"\s*".join(re.escape(char) for char in text)
+
+
+# Same markers as in normalizer. Keep these in sync.
 ANCHOR_RE = re.compile(
-    r"EPBPFANCHOR_(.*?)" + re.escape(ANCHOR_SUFFIX)
+    _spaced_literal(ANCHOR_PREFIX) + r"([\s\S]{0,200}?)" + _spaced_literal(ANCHOR_SUFFIX)
 )
+END_MARKER_RE = re.compile(_spaced_literal(END_MARKER))
 A4_WIDTH_PT = 595.275590551
 A4_HEIGHT_PT = 841.88976378
+
+
+def _package_version() -> str:
+    """Return the package version without importing it eagerly (avoids cycles)."""
+    from .. import __version__
+
+    return __version__
 
 
 # ---------- Errors ----------
@@ -95,15 +114,17 @@ def _make_cover_pdf(
     width_in = width_pt / 72.0
     height_in = height_pt / 72.0
 
-    # Use a minimal A4 HTML page that fills the page with the cover image.
+    # A minimal page that shows the whole cover without cropping: the image is
+    # scaled down proportionally when it is larger than A4 and centred on a
+    # white background (``cover`` used to crop the artwork).
     html_path = os.path.join(work_dir, "_cover.html")
     Path(html_path).write_text(
         "<!DOCTYPE html><html><head><meta charset='utf-8'>"
         f"<style>@page{{size:{width_in:.6f}in {height_in:.6f}in;margin:0;}}"
         "html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;}"
-        "body{display:block;}"
-        "img{display:block;width:100vw;height:100vh;object-fit:cover;"
-        "object-position:center center;}"
+        "body{display:flex;align-items:center;justify-content:center;background:#fff;}"
+        "img{display:block;max-width:100%;max-height:100%;width:auto;height:auto;"
+        "object-fit:contain;}"
         "</style></head><body>"
         f"<img src='{file_url}'>"
         "</body></html>",
@@ -150,23 +171,37 @@ def _make_cover_pdf(
 
 # ---------- Outline (bookmarks) ----------
 
-def _find_anchor_pages(reader: PdfReader, anchor_ids: set[str]) -> dict[str, int]:
-    """Walk every page's text and return ``{anchor_id: page_index}``.
+def _page_texts(reader: PdfReader) -> list[str]:
+    """Extract every page's text once; all later passes share this list."""
+    texts: list[str] = []
+    for page in reader.pages:
+        try:
+            texts.append(page.extract_text() or "")
+        except Exception:
+            texts.append("")
+    return texts
+
+
+def _find_anchor_pages(
+    reader: PdfReader,
+    anchor_ids: set[str],
+    page_texts: list[str] | None = None,
+) -> dict[str, int]:
+    """Walk page text and return ``{anchor_id: page_index}``.
 
     Pages are 0-indexed within ``reader.pages``. If a marker isn't found
     (e.g. it was clipped or reformatted by the print engine), it is
-    simply omitted from the result.
+    simply omitted from the result.  Chromium sometimes extracts the marker
+    with spaces between every character, so the matched id is whitespace
+    stripped before comparison.
     """
     if not anchor_ids:
         return {}
+    texts = page_texts if page_texts is not None else _page_texts(reader)
     found: dict[str, int] = {}
-    for i, page in enumerate(reader.pages):
-        try:
-            text = page.extract_text() or ""
-        except Exception:
-            continue
+    for i, text in enumerate(texts):
         for m in ANCHOR_RE.finditer(text):
-            cid = m.group(1)
+            cid = re.sub(r"\s+", "", m.group(1))
             if cid in anchor_ids and cid not in found:
                 found[cid] = i
         if len(found) == len(anchor_ids):
@@ -174,26 +209,20 @@ def _find_anchor_pages(reader: PdfReader, anchor_ids: set[str]) -> dict[str, int
     return found
 
 
-def _extract_pdf_text(reader: PdfReader) -> str:
-    parts: list[str] = []
-    for page in reader.pages:
-        try:
-            parts.append(page.extract_text() or "")
-        except Exception:
-            parts.append("")
-    return "\n".join(parts)
-
-
-def _validate_render_integrity(reader: PdfReader, book: EpubBook) -> None:
+def _validate_render_integrity(
+    reader: PdfReader,
+    book: EpubBook,
+    page_texts: list[str] | None = None,
+) -> None:
     body_chapters = [ch for ch in book.chapters if not ch.is_cover_only]
     if not body_chapters:
         return
 
+    texts = page_texts if page_texts is not None else _page_texts(reader)
     expected_ids = {ch.id for ch in body_chapters}
-    found_ids = set(_find_anchor_pages(reader, expected_ids))
+    found_ids = set(_find_anchor_pages(reader, expected_ids, page_texts=texts))
     missing = [ch.id for ch in body_chapters if ch.id not in found_ids]
-    text = _extract_pdf_text(reader)
-    missing_end = END_MARKER not in text
+    missing_end = not END_MARKER_RE.search("\n".join(texts))
 
     if missing_end:
         raise AssembleError(
@@ -210,23 +239,91 @@ def _validate_render_integrity(reader: PdfReader, book: EpubBook) -> None:
         )
 
 
+def _dedupe_title(title: str) -> str:
+    """Collapse an exactly repeated title (``FooFoo`` -> ``Foo``).
+
+    Chromium's ``generateDocumentOutline`` emits the heading text twice for some
+    paginated layouts (observed with ``page-break-before`` chapters).  The
+    repetition is always exact, so collapsing an exact doubled string restores
+    the intended bookmark title.
+    """
+    length = len(title)
+    if length >= 4 and length % 2 == 0:
+        half = length // 2
+        if title[:half] == title[half:]:
+            return title[:half]
+    return title
+
+
+def _copy_outline(
+    writer: PdfWriter,
+    raw_reader: PdfReader,
+    page_offset: int,
+) -> int:
+    """Copy the raw PDF outline into ``writer``, shifting pages by ``page_offset``.
+
+    Returns the number of outline entries added (0 when the raw PDF has none).
+    """
+    try:
+        entries = raw_reader.outline
+    except Exception:
+        return 0
+    if not entries:
+        return 0
+
+    count = 0
+
+    def walk(items, parent) -> None:
+        nonlocal count
+        last_item = None
+        for item in items:
+            if isinstance(item, list):
+                if last_item is not None:
+                    walk(item, last_item)
+                continue
+            try:
+                title = _dedupe_title(str(item.title).strip())
+                page = raw_reader.get_destination_page_number(item)
+            except Exception:
+                last_item = None
+                continue
+            if not title or page is None or page < 0:
+                last_item = None
+                continue
+            try:
+                last_item = writer.add_outline_item(
+                    title,
+                    page + page_offset,
+                    parent=parent,
+                )
+            except Exception:
+                last_item = None
+                continue
+            count += 1
+
+    walk(entries, None)
+    return count
+
+
 def _add_outline(
     writer: PdfWriter,
     raw_reader: PdfReader,
     book: EpubBook,
     cover_offset: int = 0,
+    page_texts: list[str] | None = None,
 ) -> None:
-    """Build a flat outline: top-level chapter entries, no nesting.
+    """Fallback flat outline built from the invisible chapter anchors.
 
-    Each chapter's title points to the page where its anchor marker
-    first appears in ``raw_reader`` (offset by ``cover_offset``).
+    Used only when the raw PDF has no Chromium-generated outline (the CLI
+    fallback renderer).  Each entry points to the page where the chapter's
+    anchor marker first appears.
     """
     body_chapters = [ch for ch in book.chapters if not ch.is_cover_only]
     if not body_chapters:
         return
 
     anchor_ids = {ch.id for ch in body_chapters}
-    anchor_pages = _find_anchor_pages(raw_reader, anchor_ids)
+    anchor_pages = _find_anchor_pages(raw_reader, anchor_ids, page_texts=page_texts)
 
     added = 0
     for ch in body_chapters:
@@ -288,7 +385,8 @@ def assemble(
         reader = PdfReader(raw_pdf_path)
     except Exception as e:
         raise AssembleError(f"failed to read raw PDF: {e}") from e
-    _validate_render_integrity(reader, book)
+    page_texts = _page_texts(reader)
+    _validate_render_integrity(reader, book, page_texts=page_texts)
 
     writer = PdfWriter()
 
@@ -342,14 +440,29 @@ def assemble(
         writer.add_page(p)
 
     # --- Outline (bookmarks) ---
+    # Prefer the outline Chromium generated from the document headings; it
+    # keeps heading levels and page numbers accurate. Fall back to the flat
+    # anchor-based outline when the CLI renderer produced no outline.
     check_timeout()
     cover_offset = len(cover_pages)
-    _add_outline(writer, reader, book, cover_offset=cover_offset)
+    outline_count = 0
+    try:
+        outline_count = _copy_outline(writer, reader, cover_offset)
+    except Exception:
+        outline_count = 0
+    if outline_count == 0:
+        _add_outline(
+            writer,
+            reader,
+            book,
+            cover_offset=cover_offset,
+            page_texts=page_texts,
+        )
 
     # --- Metadata ---
     check_timeout()
     try:
-        producer = "epub2pdf/1.0.0 (msedge headless)"
+        producer = f"epub2pdf/{_package_version()} (msedge headless)"
         info = {
             NameObject("/Title"): book.title,
             NameObject("/Author"): book.author,
@@ -364,7 +477,9 @@ def assemble(
         writer.add_metadata(info)
     except Exception as e:
         # Metadata failure should not abort the whole conversion
-        pass
+        import sys
+        print(f"[assembler] WARNING: could not write PDF metadata: {e}",
+              file=sys.stderr)
 
     # --- Write intermediate, then run font embedding pass ---
     # pypdf's append_pages_from_reader doesn't expose every font dict
@@ -403,3 +518,4 @@ def assemble(
               file=sys.stderr)
 
     return len(writer.pages)
+

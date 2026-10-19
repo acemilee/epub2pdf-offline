@@ -146,15 +146,23 @@ def _element_text(elem) -> str:
 
 
 def _extract_title_from_xhtml(content_html: str) -> str:
-    """Best-effort title extraction from chapter XHTML."""
+    """Best-effort title extraction from chapter XHTML.
+
+    Uses the first heading (h1-h6) in document order because many EPUB3 books
+    use h3/h4 for chapter titles; falls back to ``<title>``.
+    """
     root = _parse_document(content_html)
     if root is None:
         return ""
-    # try <h1>, <h2>, <title>
-    for tag in ("h1", "h2", "title"):
-        for cand in root.iter():
-            if _local_name(cand) != tag:
-                continue
+    heading_tags = {"h1", "h2", "h3", "h4", "h5", "h6"}
+    for cand in root.iter():
+        if _local_name(cand) not in heading_tags:
+            continue
+        text = _element_text(cand)
+        if text:
+            return text[:200]
+    for cand in root.iter():
+        if _local_name(cand) == "title":
             text = _element_text(cand)
             if text:
                 return text[:200]

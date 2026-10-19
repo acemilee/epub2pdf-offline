@@ -112,6 +112,15 @@ pre {
 
 
 POST_EPUB_CSS = """
+/* Links are not clickable in the printed PDF. EPUB stylesheets (and the UA
+   default for <a>) would otherwise keep the HTML link underline + link color,
+   which makes generated TOC/nav pages look like a web page instead of print.
+   This rule is emitted after the inlined EPUB CSS on purpose. */
+a, a:link, a:visited, a:hover, a:active {
+    color: inherit !important;
+    text-decoration: none !important;
+}
+
 /* EPUB CSS sometimes forces chapter h1 elements onto a new page. The
    outer .chapter section already owns the page break, so suppress only
    the first heading inside each normalized chapter wrapper. */
@@ -213,8 +222,10 @@ def _serialize_fragment_children(root) -> str:
 
 def _normalize_title_for_compare(text: str) -> str:
     text = _clean_text_artifacts(text or "")
-    text = re.sub(r"\s+", " ", text).strip().lower()
-    return text
+    # Compare ignoring all whitespace: parser titles join nested elements with
+    # spaces while the rendered heading text does not, so whitespace must not
+    # make an existing heading look different from the chapter title.
+    return re.sub(r"\s+", "", text).lower()
 
 
 def _first_heading_text(body_inner: str) -> str:
@@ -276,11 +287,14 @@ def _should_inject_title(ch: EpubChapter, body_inner: str) -> bool:
     return True
 
 
-def _inject_anchor_into_first_heading(body_inner: str, anchor_html: str) -> tuple[str, bool]:
-    """Place the outline marker inside the first real heading.
+def _inject_anchor_after_first_heading(body_inner: str, anchor_html: str) -> tuple[str, bool]:
+    """Place the outline marker as a sibling *after* the first real heading.
 
-    Putting the marker before the content can create a marker-only blank page
-    when an EPUB stylesheet applies ``page-break-before`` to the heading.
+    The marker must stay outside the heading element: Chromium's
+    ``generateDocumentOutline`` derives bookmark titles from the heading's text
+    content, so a marker inside the heading pollutes every bookmark title.
+    Keeping the marker in-flow (no position:absolute) is still required for the
+    fallback path that locates anchors in extracted page text.
     """
     cleaned = _strip_xml_declaration(body_inner)
     try:
@@ -291,7 +305,10 @@ def _inject_anchor_into_first_heading(body_inner: str, anchor_html: str) -> tupl
 
     for elem in root.iter():
         if _local_name(elem) in {"h1", "h2", "h3"}:
-            elem.insert(0, anchor)
+            parent = elem.getparent()
+            if parent is None:
+                continue
+            parent.insert(parent.index(elem) + 1, anchor)
             return _serialize_fragment_children(root), True
     return body_inner, False
 
@@ -301,6 +318,7 @@ def _rewrite_relative_paths(
     chapter_dir: str,
     assets_dir_name: str,
     image_map: dict[str, str] | None = None,
+    font_map: dict[str, str] | None = None,
 ) -> str:
     """Rewrite relative URLs in the chapter HTML so they resolve to the
     assets directory we will write next to the index.html.
@@ -363,7 +381,12 @@ def _rewrite_relative_paths(
         if "stylesheet" in rel and parent is not None:
             parent.remove(link)
 
-    # <style>: inline content is fine, keep it
+    # <style>: keep inline content, but point its url(...) references at the
+    # flattened assets/fonts directories written next to index.html.
+    for style in [el for el in root.iter() if _local_name(el) == "style"]:
+        if style.text:
+            style.text = _rewrite_css_urls(style.text, image_map, font_map or {})
+
     return _serialize_fragment_children(root)
 
 
@@ -386,16 +409,69 @@ def _html5_wrap(body_html: str, head_extras: str, title: str) -> str:
     )
 
 
+_CHARSET_RE = re.compile(r"@charset\s+[^;]*;\s*", re.IGNORECASE)
+
+
 def _concat_css(styles: dict[str, bytes]) -> str:
-    """Concatenate all CSS files, with @charset preserved."""
+    """Concatenate all CSS files, dropping in-fragment ``@charset`` rules.
+
+    ``@charset`` is only legal as the very first bytes of a stylesheet.
+    Once fragments are concatenated and inlined into a ``<style>``
+    element, a stray ``@charset`` makes the browser mis-decode the rest
+    of the block; the document is already UTF-8, so they are stripped.
+    """
     parts: list[str] = []
     for fname, raw in styles.items():
         try:
-            css_text = raw.decode("utf-8", errors="replace")
+            css_text = raw.decode("utf-8-sig", errors="replace")
         except Exception:
             continue
+        css_text = _CHARSET_RE.sub("", css_text)
         parts.append(f"/* === {fname} === */\n{css_text}\n")
     return "\n".join(parts)
+
+
+_FONT_EXTENSIONS = {".ttf", ".otf", ".ttc", ".woff", ".woff2"}
+_CSS_URL_RE = re.compile(r"url\(\s*(['\"]?)([^'\")]+)\1\s*\)", re.IGNORECASE)
+
+
+def _basename_lookup(mapping: dict[str, str]) -> dict[str, str]:
+    lookup: dict[str, str] = {}
+    for original, on_disk in mapping.items():
+        basename = _safe_basename(original)
+        if basename:
+            lookup[basename] = on_disk
+    return lookup
+
+
+def _rewrite_css_urls(css: str, image_map: dict[str, str], font_map: dict[str, str]) -> str:
+    """Point relative ``url(...)`` references at the flattened asset dirs.
+
+    EPUB fonts are declared through ``@font-face { src: url("../fonts/x.ttf") }``
+    in CSS. The normalized document lives at the work-directory root, so those
+    relative paths would otherwise escape the work directory and the webfont
+    would silently fail to load. Images referenced from CSS need the same
+    treatment.
+    """
+    images_by_base = _basename_lookup(image_map)
+    fonts_by_base = _basename_lookup(font_map)
+
+    def replace(match: re.Match[str]) -> str:
+        raw = match.group(2).strip()
+        if raw.startswith(("data:", "http://", "https://", "file://", "#", "asset://")):
+            return match.group(0)
+        path = raw.split("#", 1)[0].split("?", 1)[0]
+        basename = _safe_basename(path)
+        if not basename:
+            return match.group(0)
+        extension = os.path.splitext(basename)[1].lower()
+        if extension in _FONT_EXTENSIONS and basename in fonts_by_base:
+            return f'url("fonts/{fonts_by_base[basename]}")'
+        if basename in images_by_base:
+            return f'url("assets/{images_by_base[basename]}")'
+        return match.group(0)
+
+    return _CSS_URL_RE.sub(replace, css)
 
 
 def _write_assets(book: EpubBook, work_dir: str) -> dict[str, str]:
@@ -462,6 +538,7 @@ def normalize(book: EpubBook, work_dir: str) -> str:
     # 1. Write assets
     asset_maps = _write_assets(book, work_dir)
     image_map = asset_maps.get("images", {})
+    font_map = asset_maps.get("fonts", {})
 
     # 2. Build chapter HTML
     body_parts: list[str] = []
@@ -473,7 +550,9 @@ def normalize(book: EpubBook, work_dir: str) -> str:
             continue
         # Extract just the body / inner content if lxml could parse it
         body_inner = _extract_body_inner(ch.content_html)
-        body_inner = _rewrite_relative_paths(body_inner, ch.href, "assets", image_map)
+        body_inner = _rewrite_relative_paths(
+            body_inner, ch.href, "assets", image_map, font_map
+        )
         body_inner = _clean_text_artifacts(body_inner)
         chapter_title = _clean_text_artifacts(ch.title)
         title_html = ""
@@ -499,9 +578,11 @@ def normalize(book: EpubBook, work_dir: str) -> str:
         )
         leading_anchor_html = ""
         if title_html:
-            title_html = title_html.replace(">", f">{anchor_html}", 1)
+            # Synthetic heading first, marker as its sibling so outline titles
+            # stay clean.
+            title_html = title_html.rstrip("\n") + anchor_html + "\n"
         else:
-            body_inner, anchor_inserted = _inject_anchor_into_first_heading(
+            body_inner, anchor_inserted = _inject_anchor_after_first_heading(
                 body_inner,
                 anchor_html,
             )
@@ -535,7 +616,7 @@ def normalize(book: EpubBook, work_dir: str) -> str:
         )
 
     # 3. Inline all EPUB CSS (so head_extras covers them)
-    inline_css = _concat_css(book.styles)
+    inline_css = _rewrite_css_urls(_concat_css(book.styles), image_map, font_map)
     head_extras = f"<style>\n{inline_css}\n</style>"
 
     # 4. Final document

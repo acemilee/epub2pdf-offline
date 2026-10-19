@@ -3,6 +3,21 @@
 > 本文件保存根因、排查方法和踩坑细节；HANDOFF.md 只保留一行指针。
 > 按时间倒序，每条注明日期与版本/基线。
 
+## 2026-10-20 · v1.1.0 后：EPUB `@page` 覆盖页边距 / 正文字号偏小
+
+### 1. EPUB 自带的 `@page { margin: 0 }` 会覆盖我们的 A4 页边距（正文贴边）
+
+- **现象**：`Systematic Trading`（InDesign 11.3 导出 EPUB）转出的 PDF，正文从第 7 页起文字贴到纸张四边（第 13 页文本 bbox `x0=0.0, y0=1.3, x1=595.5`；197 个正文页里 193 页左边距 <10pt）。同一程序转《毛泽东选集》《Spec-Driven AI Engineering》正文边距正常（`x0=51–74pt`）。
+- **根因（代码核实）**：`normalizer._html5_wrap`（`normalizer.py:542`）的 `<style>` 顺序是 `PRINT_CSS`(`:550`) → 内联 EPUB CSS(`:551`) → `POST_EPUB_CSS`(`:552`)；`_concat_css`(`:564`) 只清 `@charset`，不清 `@page`。该 EPUB 的 `OEBPS/css/idGeneratedStyles.css` 有 `@page { margin: 0px 0px 0px 0px; }`（对自带边距的阅读器合法），同优先级后出现者生效，于是覆盖了 `PRINT_CSS` 的 `@page`；`POST_EPUB_CSS` 又没重新声明 `@page`，没有兜底。
+- **Chromium 行为探针**（`preferCSSPageSize: true`）：CSS `@page 18mm` + CDP `margins=0` → bbox `51.0,62.4,541.1`；CSS `@page margin:0` + CDP `margins=0.5in` → bbox `6.0,11.4,589.5`，**margins 参数被完全忽略**。⇒ 边距只能由 CSS 决定，改 CDP 边距参数无效；CLI 回退（`--no-margins`）同样尊重 CSS。
+- **教训**：把第三方 CSS 内联进打印文档前，必须清洗会与打印介质冲突的 at-rule（`@page`），并在最后追加自己的 `@page` 兜底；不能假设“我们的 CSS 在前就够”。修复计划：`docs/plans/v1.1.1.md`。
+
+### 2. 正文偏小主要由 EPUB 的 em 级联字号决定，代码只固定根字号
+
+- `PRINT_CSS` 只设 `html { font-size: 11pt }`（`normalizer.py:65`），不覆盖每段字号；`Spec-Driven AI Engineering` 的 `OEBPS/stylesheet.css`（818 KB）有 **2370 处 `font-size`**，正文类用 em：`class_sH22/sH28` 0.71em（→7.81pt）、`class_sH20` 0.76em、`class_sGUW/sGUY` 0.86em、`class_sH7` 0.95em，嵌套还会相乘。
+- PDF 实测（299 页 / 532,563 字符）：≥10.5pt 31.9%、9.5–10.5pt 29.4%、8.5–9.5pt 13.5%、**7.5–8.5pt 24.2%**、<7.5pt 0.9%；该 EPUB 在普通阅读器同样偏小（0.71em×16px≈8.5pt），我们的 11pt 根字号再缩小约 8%。
+- **教训**：字号问题先区分“源文件规则”与“转换器固定值”；要改也只能在 CSS 归一化层做（根字号或 `font-size` 下限重写），并配字号断言与视觉回归，属于独立需求。
+
 ## 2026-10-19（第 3 次）· v1.0.1 书签路线 spike（B：CDP generateDocumentOutline）
 
 ### 1. Edge 155 支持 CDP 生成 PDF 大纲，CLI 参数不支持

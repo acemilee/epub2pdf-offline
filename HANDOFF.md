@@ -11,7 +11,7 @@
 | 代码基线 | 发布提交 **`0b04e48`**（tag `v1.1.0`）；上一版 `v1.0.1` = `6602927`（tag `v1.0.1`） |
 | 运行环境 | Windows 10/11 + Microsoft Edge（本机 **155.0.4283.62**） |
 | 开发解释器 | `F:\python313\python.exe`（3.13.9，依赖齐全）；**仓库内没有可用的 `.venv`** |
-| 当前计划 | [docs/plans/v1.1.md](docs/plans/v1.1.md)（v0.3，已执行完成，§11 为执行记录）；上一版 [docs/plans/v1.0.1.md](docs/plans/v1.0.1.md) 已完成 |
+| 当前计划 | [docs/plans/v1.1.1.md](docs/plans/v1.1.1.md)（v0.1，待施工：修复 EPUB `@page` 覆盖页边距）；上一版 [docs/plans/v1.1.md](docs/plans/v1.1.md)（v0.3，已执行完成） |
 
 **功能现状（均已在最终 PDF 上实测）**
 
@@ -32,10 +32,11 @@
 - 书内 `<a>` 链接在 PDF 中为链接批注，部分查看器会自行加下划线；"消除下划线"指 PDF 页面绘制层。
 - 组装阶段的大书耗时已从 ~270 s 降到 ~23 s（PyMuPDF 文本抽取）；全流程仍受渲染影响。
 - v1.1 新增目录页后的峰值内存未单独重测（v1.0.1 基线 280.2 MB）。
+- **已知缺陷（待 v1.1.1 修复）**：EPUB 若自带 `@page { margin: 0 }`（InDesign 导出常见），正文页会贴到纸张四边（实测 `Systematic Trading` 197 页中 193 页左边距 <10pt）；根因与修复计划见 [docs/plans/v1.1.1.md](docs/plans/v1.1.1.md)。
 
 **待办 / 下一动作**
 
-1. 发布流程：`git tag v1.1.0` 前核对 `dist\EpubToPdf\EpubToPdf.exe` 是新构建（`dist` 被忽略，不入库）；打包后跑 `--cli` smoke + GUI 启动。
+1. **下一动作**：执行 [docs/plans/v1.1.1.md](docs/plans/v1.1.1.md)（清洗 EPUB `@page` + 兜底 @page + e2e 边距断言，T0–T5）；完成后版本 v1.1.1 并重新打包。
 2. 若要继续演进，v1.2 候选见 §8；无 P0 阻塞项。
 3. 回归入口：`F:\python313\python.exe -m pytest -q`（全绿）、`-m e2e`（真实 Edge）、真实书转换命令见 §2。
 
@@ -126,5 +127,6 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 | --- | --- | --- |
 | 2026-10-19 | v1.0.1 | 多级书签（CDP outline）、目录页下划线消除、字体并集嵌入、EPUB 内嵌字体、封面 contain、取消/超时/调试、打包与提交 `6602927` |
 | 2026-10-20 | v1.1.0 | commit `0b04e48` / tag `v1.1.0`： 生成目录页 + 可点击行、NCX 备选书签、封面 magic 嗅探、嵌套导航解析修复、GUI 打开输出目录、PyMuPDF 快路径；计划 v0.3 与对比报告 |
+| 2026-10-20 | 计划 v1.1.1 | 新增 [docs/plans/v1.1.1.md](docs/plans/v1.1.1.md)：EPUB `@page` 覆盖页边距的修复计划（v0.1，待施工）；lessons 增 @page 与字号归因两条 |
 
 

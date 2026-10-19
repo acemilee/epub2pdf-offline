@@ -160,6 +160,12 @@ a, a:link, a:visited, a:hover, a:active {
     page-break-before: avoid !important;
     break-before: auto !important;
 }
+
+/* Final page-box guard (v1.1.1). EPUB CSS can carry @page { margin: 0 }
+   (InDesign export); the sanitizer removes those rules, but this declaration
+   is emitted last so the A4 print box wins even if one slipped through. */
+@page { size: A4; margin: 18mm 16mm 20mm 16mm; }
+@page :first { margin-top: 0; }
 """
 
 
@@ -531,10 +537,13 @@ def _rewrite_relative_paths(
             parent.remove(link)
 
     # <style>: keep inline content, but point its url(...) references at the
-    # flattened assets/fonts directories written next to index.html.
+    # flattened assets/fonts directories written next to index.html. EPUB
+    # page-box rules are dropped for the same reason as in ``_concat_css``.
     for style in [el for el in root.iter() if _local_name(el) == "style"]:
         if style.text:
-            style.text = _rewrite_css_urls(style.text, image_map, font_map or {})
+            style.text = _sanitize_epub_css(
+                _rewrite_css_urls(style.text, image_map, font_map or {})
+            )
 
     return _serialize_fragment_children(root)
 
@@ -561,6 +570,75 @@ def _html5_wrap(body_html: str, head_extras: str, title: str) -> str:
 _CHARSET_RE = re.compile(r"@charset\s+[^;]*;\s*", re.IGNORECASE)
 
 
+def _strip_at_page_rules(css: str) -> str:
+    """Remove every ``@page`` at-rule (with nested margin boxes) from *css*.
+
+    InDesign-style EPUB exports declare ``@page { margin: 0 }`` for readers
+    that supply their own page margins. Inlined after ``PRINT_CSS`` such a
+    rule wins the cascade and body text runs to the paper edge (v1.1.1
+    regression: ``Systematic Trading``). We own the print page box, so drop
+    these rules from the EPUB CSS; ``POST_EPUB_CSS`` re-declares our A4 box
+    as a final guard.
+    """
+    out: list[str] = []
+    i = 0
+    length = len(css)
+    while i < length:
+        if css.startswith("/*", i):
+            end = css.find("*/", i + 2)
+            end = length if end < 0 else end + 2
+            out.append(css[i:end])
+            i = end
+            continue
+        char = css[i]
+        if char in "\"'":
+            quote = char
+            j = i + 1
+            while j < length:
+                if css[j] == "\\":
+                    j += 2
+                    continue
+                if css[j] == quote:
+                    j += 1
+                    break
+                j += 1
+            out.append(css[i:j])
+            i = j
+            continue
+        if css[i:i + 5].lower() == "@page" and (
+            i == 0 or not (css[i - 1].isalnum() or css[i - 1] in "-_")
+        ):
+            j = i + 5
+            while j < length and css[j] not in "{;":
+                j += 1
+            if j >= length:
+                i = length
+                break
+            if css[j] == ";":
+                i = j + 1
+                continue
+            depth = 0
+            while j < length:
+                if css[j] == "{":
+                    depth += 1
+                elif css[j] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        j += 1
+                        break
+                j += 1
+            i = j
+            continue
+        out.append(char)
+        i += 1
+    return "".join(out)
+
+
+def _sanitize_epub_css(css: str) -> str:
+    """Strip rules from third-party EPUB CSS that conflict with print layout."""
+    return _strip_at_page_rules(css)
+
+
 def _concat_css(styles: dict[str, bytes]) -> str:
     """Concatenate all CSS files, dropping in-fragment ``@charset`` rules.
 
@@ -568,6 +646,7 @@ def _concat_css(styles: dict[str, bytes]) -> str:
     Once fragments are concatenated and inlined into a ``<style>``
     element, a stray ``@charset`` makes the browser mis-decode the rest
     of the block; the document is already UTF-8, so they are stripped.
+    ``@page`` rules are stripped as well: the converter owns the A4 page box.
     """
     parts: list[str] = []
     for fname, raw in styles.items():
@@ -576,6 +655,7 @@ def _concat_css(styles: dict[str, bytes]) -> str:
         except Exception:
             continue
         css_text = _CHARSET_RE.sub("", css_text)
+        css_text = _sanitize_epub_css(css_text)
         parts.append(f"/* === {fname} === */\n{css_text}\n")
     return "\n".join(parts)
 

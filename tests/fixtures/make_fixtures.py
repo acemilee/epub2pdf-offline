@@ -182,6 +182,53 @@ SVG_COVER = b"""<?xml version="1.0" encoding="UTF-8"?>
 </svg>
 """
 
+# An InDesign-style stylesheet: declares zero page margins (and a margin box)
+# which would otherwise override the converter's print @page rules.
+ZEROMARGIN_CSS = """
+@page { margin: 0px 0px 0px 0px; @top-center { content: "running header"; } }
+@page :first { margin: 0px; }
+body { font-family: "Segoe UI", sans-serif; margin: 0; padding: 0; }
+p { margin: 0 0 0.6em 0; }
+"""
+
+
+def build_zeromargin() -> Path:
+    """Book whose CSS declares ``@page { margin: 0 }`` (v1.1.1 regression)."""
+    book = _new_book("fixture-zeromargin", "Zero Margin Fixture")
+    style = _add_style(book, ZEROMARGIN_CSS)
+
+    chapters = []
+    for index in range(1, 4):
+        title = f"Zero Margin Chapter {index}"
+        inline_style = (
+            "<style>@page { margin: 0; }</style>" if index == 2 else ""
+        )
+        chapter = epub.EpubHtml(
+            title=title, file_name=f"zero{index}.xhtml", lang="en"
+        )
+        chapter.content = (
+            "<html><head><title>%s</title>%s</head><body>"
+            "<h1>%s</h1>%s</body></html>"
+            % (
+                title,
+                inline_style,
+                title,
+                "".join(
+                    f"<p>Body line {n} for the zero-margin regression fixture. "
+                    "The converter must restore its A4 print margins.</p>"
+                    for n in range(1, 8)
+                ),
+            )
+        )
+        chapter.add_item(style)
+        book.add_item(chapter)
+        chapters.append(chapter)
+
+    book.toc = [epub.Link(ch.file_name, ch.title, ch.file_name) for ch in chapters]
+    book.spine = ["nav", *chapters]
+    _add_ncx_nav(book)
+    return _write(book, "zeromargin.epub")
+
 
 def build_svgcover() -> Path:
     """Book whose cover image is SVG (regression for the blank-cover bug)."""
@@ -203,7 +250,13 @@ def build_svgcover() -> Path:
 
 def main() -> None:
     FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
-    for builder in (build_basic, build_cjk, build_fontsplit, build_svgcover):
+    for builder in (
+        build_basic,
+        build_cjk,
+        build_fontsplit,
+        build_svgcover,
+        build_zeromargin,
+    ):
         path = builder()
         print(f"wrote {path} ({path.stat().st_size} bytes)")
 

@@ -343,3 +343,34 @@ def test_concat_css_drops_misplaced_charset_rules():
     assert "color:red" in css
     assert "color:blue" in css
 
+
+def test_sanitize_epub_css_removes_at_page_rules_only():
+    css = """
+    @page { margin: 0px 0px 0px 0px; @top-center { content: "running"; } }
+    @page :first { margin: 0px; }
+    @media print { @page { margin: 0 } }
+    @font-face { font-family: X; src: url(fonts/x.ttf); }
+    body { margin: 0; color: red; }
+    """
+    cleaned = normalizer._sanitize_epub_css(css)
+
+    assert "@page" not in cleaned
+    assert "@font-face" in cleaned
+    assert "body { margin: 0; color: red; }" in cleaned
+
+
+def test_concat_css_strips_epub_at_page_from_stylesheets():
+    css = normalizer._concat_css(
+        {"style.css": b"@page { margin: 0 } body { color: red }"}
+    )
+
+    assert "@page" not in css
+    assert "color: red" in css
+
+
+def test_post_epub_css_redeclares_print_page_box():
+    # The last stylesheet on the page must restore our A4 margins even if an
+    # EPUB rule slips through the sanitizer (v1.1.1).
+    assert "@page" in normalizer.POST_EPUB_CSS
+    assert "18mm 16mm 20mm 16mm" in normalizer.POST_EPUB_CSS
+

@@ -92,6 +92,30 @@ def find_heading_page(doc, heading: str) -> int | None:
     return None
 
 
+def text_page_margins(page) -> tuple[float, float, float, float] | None:
+    """Return ``(left, top, right, bottom)`` margins of a page's text blocks."""
+    blocks = page.get_text("blocks")
+    if not blocks:
+        return None
+    x0 = min(block[0] for block in blocks)
+    y0 = min(block[1] for block in blocks)
+    x1 = max(block[2] for block in blocks)
+    y1 = max(block[3] for block in blocks)
+    rect = page.rect
+    return (x0 - rect.x0, y0 - rect.y0, rect.x1 - x1, rect.y1 - y1)
+
+
+def body_pages(doc, min_chars: int = 40):
+    """Return ``[(index, page), ...]`` for text-bearing pages after the first."""
+    result = []
+    for index, page in enumerate(doc):
+        if index == 0:
+            continue
+        if len(page.get_text().strip()) >= min_chars:
+            result.append((index, page))
+    return result
+
+
 def assert_no_missing_anchors(stderr: str) -> None:
     assert "missing chapter anchors" not in stderr, stderr
 

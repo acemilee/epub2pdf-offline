@@ -7,11 +7,11 @@
 
 | 项 | 值 |
 | --- | --- |
-| 当前版本 | **v1.1.0**（2026-10-20） |
-| 代码基线 | 发布提交 **`0b04e48`**（tag `v1.1.0`）；上一版 `v1.0.1` = `6602927`（tag `v1.0.1`） |
+| 当前版本 | **v1.1.1**（2026-10-20，bugfix：不再继承 EPUB 的 `@page` 页边距） |
+| 代码基线 | 发布提交 **tag `v1.1.1`**（hash 见 `git log`）；上一版 `v1.1.0` = `0b04e48`，`v1.0.1` = `6602927` |
 | 运行环境 | Windows 10/11 + Microsoft Edge（本机 **155.0.4283.62**） |
 | 开发解释器 | `F:\python313\python.exe`（3.13.9，依赖齐全）；**仓库内没有可用的 `.venv`** |
-| 当前计划 | [docs/plans/v1.1.1.md](docs/plans/v1.1.1.md)（v0.1，待施工：修复 EPUB `@page` 覆盖页边距）；上一版 [docs/plans/v1.1.md](docs/plans/v1.1.md)（v0.3，已执行完成） |
+| 当前计划 | [docs/plans/v1.1.1.md](docs/plans/v1.1.1.md)（v0.2，**已执行完成**）；上一版 [docs/plans/v1.1.md](docs/plans/v1.1.md)（v0.3，已执行完成） |
 
 **功能现状（均已在最终 PDF 上实测）**
 
@@ -20,6 +20,7 @@
 - **PDF 书签**：默认由 CDP `Page.printToPDF(generateDocumentOutline=true)` 生成多级书签（真实书 708 条 / 5 层）；`--outline-source ncx` 可用 EPUB 导航文档生成（同书 410 条 / 3 层）。CDP 不可用时降级为锚点扁平书签。
 - 字体：全书 GID 并集子集化嵌入系统字体；支持 EPUB 内嵌 webfont 与 PostScript 字体名（`ArialMT`/`TimesNewRomanPSMT`…）。
 - 封面：按内容嗅探格式（PNG/JPEG/GIF/WebP/BMP/SVG/AVIF/ICO）；等比缩放居中不裁切；TIFF 跳过并告警。
+- **页边距由本项目决定**（v1.1.1）：EPUB 自带的 `@page`（含 `margin:0`、纸张尺寸、margin box）会被清洗，正文统一使用 A4 + 18/16/20/16mm；EPUB 若未声明 `@page` 则输出与旧版一致。
 - EPUB 自带 nav/TOC 页保留为内容页，其链接下划线已被打印样式抑制（不重制原 nav 页）。
 - 健壮性：取消会中断浏览器进程；`--debug` 打印 traceback；分阶段耗时；`@charset` 内联安全；元数据失败仅告警。
 
@@ -32,13 +33,13 @@
 - 书内 `<a>` 链接在 PDF 中为链接批注，部分查看器会自行加下划线；"消除下划线"指 PDF 页面绘制层。
 - 组装阶段的大书耗时已从 ~270 s 降到 ~23 s（PyMuPDF 文本抽取）；全流程仍受渲染影响。
 - v1.1 新增目录页后的峰值内存未单独重测（v1.0.1 基线 280.2 MB）。
-- **已知缺陷（待 v1.1.1 修复）**：EPUB 若自带 `@page { margin: 0 }`（InDesign 导出常见），正文页会贴到纸张四边（实测 `Systematic Trading` 197 页中 193 页左边距 <10pt）；根因与修复计划见 [docs/plans/v1.1.1.md](docs/plans/v1.1.1.md)。
+- **版式行为（不是缺陷）**：EPUB 自带的 `@page` 纸张/页边距/页眉页脚声明一律被忽略（v1.1.1 起）；依赖自定义纸张的 EPUB 会统一排成 A4。
+- **已知问题（未修，待决策）**：正文字号主要由 EPUB 自身 class CSS 的 em 值决定（根字号仅 `html{font-size:11pt}`），部分 EPUB 正文只有 ~8pt；调研与四种可选修法见 [docs/plans/v1.1.1.md](docs/plans/v1.1.1.md) §8，是否修需用户拍板。
 
 **待办 / 下一动作**
 
-1. **下一动作**：执行 [docs/plans/v1.1.1.md](docs/plans/v1.1.1.md)（清洗 EPUB `@page` + 兜底 @page + e2e 边距断言，T0–T5）；完成后版本 v1.1.1 并重新打包。
-2. 若要继续演进，v1.2 候选见 §8；无 P0 阻塞项。
-3. 回归入口：`F:\python313\python.exe -m pytest -q`（全绿）、`-m e2e`（真实 Edge）、真实书转换命令见 §2。
+1. **下一动作**：无 P0；v1.2 候选与字号策略见 §8，等用户优先级。
+2. 回归入口：`F:\python313\python.exe -m pytest -q`（83 项全绿）、`-m e2e`（14 项真实 Edge）；真实书命令见 §2。
 
 ## 2. 入口与常用命令
 
@@ -75,7 +76,16 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 
 `normalizer.py` 的 `PRINT_CSS` / `POST_EPUB_CSS` 是版式核心；锚点 `EPBPFANCHOR_…_EPBPFANCHOR_END`、TOC 锚点 `EPBPFTOC_<n>`、文档尾 `EPBPFEND_DOCUMENT` 是 L4 定位依据。
 
-## 4. 本轮（v1.1.0）变更清单
+## 4. 变更清单（v1.1.1 / v1.1.0）
+
+### v1.1.1（2026-10-20）
+
+- `normalizer.py`：新增 `_strip_at_page_rules`（括号配平删除 `@page` 及其嵌套 margin box）与 `_sanitize_epub_css`；`_concat_css` 与内联 `<style>` 都走清洗；`POST_EPUB_CSS` 末尾重新声明 `@page { size: A4; margin: 18mm 16mm 20mm 16mm; }` 作为最后一道兜底。
+- 测试：fixture `zeromargin.epub` + `tests/e2e/test_page_margins_e2e.py`（CDP 与 CLI 两条路径、内联 `<style>` 变体）+ `tests/test_normalizer.py` 新增清洗单测。
+- `EpubToPdf.spec`：`Analysis.excludes` 增加 torch/tensorflow/cv2/pandas 等无关重型库，避免 PyInstaller 在构建机上误分析（缩小产物体积、缩短构建时间）。
+- 版本 `1.1.1`（`src/epub2pdf/__init__.py`、`pyproject.toml`）；`RELEASE_NOTES.md`、`README.md` 同步；计划 [docs/plans/v1.1.1.md](docs/plans/v1.1.1.md) 升 v0.2 并补执行记录。
+
+### v1.1.0（2026-10-20）
 
 - 新增 `src/epub2pdf/core/toc_page.py`：生成式目录页（12 页/410 行，页码与书签一致，可点击）。
 - `normalizer.py`：`TocAnchor`/`NormalizeResult`、章级 + fragment 锚点、锚点作为标题后兄弟节点。
@@ -89,6 +99,16 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 - 文档：`docs/plans/v1.1.md`（v0.3 + 执行记录）、`docs/plans/v1.1-m3-compare.md`（Chromium vs NCX 实验报告）。
 
 ## 5. 验证证据（2026-10-20，本机实测）
+
+**v1.1.1（@page 修复）**
+
+- `Systematic Trading`：修复前（v1.1.0 代码基线）204 页，197 个正文页中 **196 页** 左/右边距 < 40pt（最小 -0.66 / -3.18pt）；修复后 **241 页，坏页 0**（最小左 44.34pt / 右 42.58pt）。页数增加是边距生效后的预期重排。
+- 《毛泽东选集》：修复前后均 **1381 页**、书签 708 条/5 层、Type0 缺嵌入 0，逐页边距一致；9 个右边界 39.71pt 页为基线已有，非本修复引入。
+- `Spec-Driven AI Engineering`：同代码基线（v1.1.0 `0b04e48`）与 v1.1.1 均 **303 页**、左边距 45.34pt；用户旧产物 299 页来自更早版本/不同机器，不能作基线（计划 §10 差异 1）。
+- 测试：`pytest -q` **83 项全绿**（e2e 14 项真实 Edge）；`pytest -q -m e2e` 14 passed。
+- 打包：`dist\EpubToPdf\EpubToPdf.exe` 重新构建；`--cli` 与 GUI smoke 见 §5 v1.1.0 记录（命令相同）。
+
+**v1.1.0**
 
 - 真实书 `ebook/毛泽东选集 一至七卷…epub`（416 章）：最终 PDF **1381 页 / 13.4 MB**；目录页 12 页 / 约 410 行；书签 708 条 / 5 层（1:8 / 2:16 / 3:387 / 4:253 / 5:44）。
 - 目录页码：399 条精确命中；9 条为带脚注号标题（如 `关于辽沈战役〔1〕的作战方针*`）的检查脚本误报，人工核对正确。
@@ -107,15 +127,16 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 
 ## 7. 下一任务及动作
 
-1. 提交 v1.1.0（`git status` 检查后 commit + tag `v1.1.0`）。
-2. 打包产物 smoke：`--cli` 跑 `tests/fixtures/basic.epub` 断言目录页/书签/链接；GUI 启动并确认按钮可见。
-3. 若继续演化，按 §8 候选与用户优先级排期。
+1. 无 P0 阻塞；v1.1.1 已发布（tag `v1.1.1`）。
+2. 若要继续演进：先就 §8 的“字号策略”做一次决策（改根字号 / 下限重写 / 仅表格图注 / 不改），再立项；其余候选按用户优先级排期。
+3. 回归入口：`F:\python313\python.exe -m pytest -q`（83 项）、`-m e2e`（14 项真实 Edge）。
 
 ## 8. v1.2 候选（未承诺）
 
 | 候选 | 说明 | 依据/状态 |
 | --- | --- | --- |
-| 目录页进阶 | 卷/章两级缩进、超长标题省略号、可选"只列章"开关 | 当前已支持 level ��进；两行换行已限制 |
+| 字号策略 | ①根字号 12pt；②对 `font-size < 0.85em` 规则做下限重写；③仅表格/图注最小 9pt；④不改只写文档 | 调研见计划 §8；需用户选定后立项 |
+| 目录页进阶 | 卷/章两级缩进、超长标题省略号、可选"只列章"开关 | 当前已支持 level 缩进；两行换行已限制 |
 | 深色/打印版式 | 用户自定义 CSS、纸张大小（Letter/B5） | 未实现，需求未确认 |
 | 性能 | 组装阶段已优化；剩余瓶颈在 CDP 渲染大书 | 大书 render ~20 s，可接受 |
 | 封面 TIFF | 引入 Pillow 转码 | 已决定不引入（AGENTS §7 最简实现） |
@@ -127,6 +148,6 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 | --- | --- | --- |
 | 2026-10-19 | v1.0.1 | 多级书签（CDP outline）、目录页下划线消除、字体并集嵌入、EPUB 内嵌字体、封面 contain、取消/超时/调试、打包与提交 `6602927` |
 | 2026-10-20 | v1.1.0 | commit `0b04e48` / tag `v1.1.0`： 生成目录页 + 可点击行、NCX 备选书签、封面 magic 嗅探、嵌套导航解析修复、GUI 打开输出目录、PyMuPDF 快路径；计划 v0.3 与对比报告 |
-| 2026-10-20 | 计划 v1.1.1 | 新增 [docs/plans/v1.1.1.md](docs/plans/v1.1.1.md)：EPUB `@page` 覆盖页边距的修复计划（v0.1，待施工）；lessons 增 @page 与字号归因两条 |
+| 2026-10-20 | v1.1.1 | tag `v1.1.1`：清洗 EPUB `@page` + 兜底 A4 页边距（正文贴边修复）、spec excludes 清理构建污染；计划 v0.2 执行记录、lessons 增 @page 条目 |
 
 

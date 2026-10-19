@@ -1,3 +1,30 @@
+# EPUB2PDF v1.1.1
+
+Bug-fix release. EPUB stylesheets that declare their own page box no longer
+erase the converter's A4 margins.
+
+## Fixes
+
+- **Print margins are authoritative again**: InDesign-style EPUB exports ship
+  `@page { margin: 0 }` for readers that draw their own margins. Those rules
+  used to be inlined after the print stylesheet and won the cascade, so body
+  text ran to the paper edge (reported for *Systematic Trading*: 193 of 197
+  body pages had a left margin under 10 pt). The converter now strips every
+  `@page` at-rule from EPUB CSS — including inline `<style>` blocks and nested
+  margin boxes — and re-declares its A4 page box last as a guard. Both the CDP
+  and the CLI rendering paths are covered.
+- **Known limitation removed**: the "body text may touch the page edge for
+  EPUBs with a custom `@page` rule" note no longer applies.
+
+## Compatibility
+
+- Books whose EPUB CSS did not declare `@page` render exactly as before.
+- Books that did declare it now paginate with normal margins, so their page
+  counts may differ from v1.1.0 output; bookmarks, generated TOC page numbers
+  and internal links are recomputed from the new pagination.
+- Text size is still determined by the EPUB's own CSS (only the root font size
+  is set by the converter); this release does not normalise small fonts.
+
 # EPUB2PDF v1.1.0
 
 Reading-experience release. Every generated PDF now starts with a real,

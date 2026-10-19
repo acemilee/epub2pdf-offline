@@ -10,13 +10,24 @@
 - **现象**：`Systematic Trading`（InDesign 11.3 导出 EPUB）转出的 PDF，正文从第 7 页起文字贴到纸张四边（第 13 页文本 bbox `x0=0.0, y0=1.3, x1=595.5`；197 个正文页里 193 页左边距 <10pt）。同一程序转《毛泽东选集》《Spec-Driven AI Engineering》正文边距正常（`x0=51–74pt`）。
 - **根因（代码核实）**：`normalizer._html5_wrap`（`normalizer.py:542`）的 `<style>` 顺序是 `PRINT_CSS`(`:550`) → 内联 EPUB CSS(`:551`) → `POST_EPUB_CSS`(`:552`)；`_concat_css`(`:564`) 只清 `@charset`，不清 `@page`。该 EPUB 的 `OEBPS/css/idGeneratedStyles.css` 有 `@page { margin: 0px 0px 0px 0px; }`（对自带边距的阅读器合法），同优先级后出现者生效，于是覆盖了 `PRINT_CSS` 的 `@page`；`POST_EPUB_CSS` 又没重新声明 `@page`，没有兜底。
 - **Chromium 行为探针**（`preferCSSPageSize: true`）：CSS `@page 18mm` + CDP `margins=0` → bbox `51.0,62.4,541.1`；CSS `@page margin:0` + CDP `margins=0.5in` → bbox `6.0,11.4,589.5`，**margins 参数被完全忽略**。⇒ 边距只能由 CSS 决定，改 CDP 边距参数无效；CLI 回退（`--no-margins`）同样尊重 CSS。
-- **教训**：把第三方 CSS 内联进打印文档前，必须清洗会与打印介质冲突的 at-rule（`@page`），并在最后追加自己的 `@page` 兜底；不能假设“我们的 CSS 在前就够”。修复计划：`docs/plans/v1.1.1.md`。
+- **教训**：把第三方 CSS 内联进打印文档前，必须清洗会与打印介质冲突的 at-rule（`@page`），并在最后追加自己的 `@page` 兜底；不能假设“我们的 CSS 在前就够”。**状态：v1.1.1 已修复**（`normalizer._strip_at_page_rules` + `POST_EPUB_CSS` 末尾重声明 A4 页边距；`Systematic Trading` 196 个坏页 → 0，见计划 §10 执行记录）。
 
 ### 2. 正文偏小主要由 EPUB 的 em 级联字号决定，代码只固定根字号
 
 - `PRINT_CSS` 只设 `html { font-size: 11pt }`（`normalizer.py:65`），不覆盖每段字号；`Spec-Driven AI Engineering` 的 `OEBPS/stylesheet.css`（818 KB）有 **2370 处 `font-size`**，正文类用 em：`class_sH22/sH28` 0.71em（→7.81pt）、`class_sH20` 0.76em、`class_sGUW/sGUY` 0.86em、`class_sH7` 0.95em，嵌套还会相乘。
 - PDF 实测（299 页 / 532,563 字符）：≥10.5pt 31.9%、9.5–10.5pt 29.4%、8.5–9.5pt 13.5%、**7.5–8.5pt 24.2%**、<7.5pt 0.9%；该 EPUB 在普通阅读器同样偏小（0.71em×16px≈8.5pt），我们的 11pt 根字号再缩小约 8%。
 - **教训**：字号问题先区分“源文件规则”与“转换器固定值”；要改也只能在 CSS 归一化层做（根字号或 `font-size` 下限重写），并配字号断言与视觉回归，属于独立需求。
+
+### 3. 跨版本/跨机器的旧 PDF 不能当作回归基线
+
+- 用户提供的 `Spec-Driven` PDF 是 299 页；用当前代码基线（v1.1.0 `0b04e48`）转同一 EPUB 是 303 页、边距正常。差异来自更早版本或不同机器（字体可用性、Edge 版本影响分页），不是本修复引入。
+- **教训**：验收“有没有改坏”必须用“同一代码基线、同一机器”生成对照产物（AGENTS 11.5 控制变量）；用户旧产物只能作为现象样本，不能作为门限。
+
+### 4. PyInstaller 会顺带分析构建机上的无关重型库
+
+- 构建机 site-packages 里装了 torch/tensorflow/cv2/pandas 等，`Analysis` 阶段大量 hook 被触发（构建 >4 分钟，且可能把无关二进制打进包）。`fitz` 已确认解析到 PyMuPDF shim，不是误解析。
+- **修法**：在 `EpubToPdf.spec` 的 `Analysis(excludes=[...])` 显式排除这些库与其它 Qt 绑定；它们不是运行期依赖，不影响功能。
+- **教训**：打包机与被测环境依赖集不同时，冻结产物要按“声明依赖”显式白名单/黑名单，不能依赖构建机的偶然状态。
 
 ## 2026-10-19（第 3 次）· v1.0.1 书签路线 spike（B：CDP generateDocumentOutline）
 

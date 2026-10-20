@@ -436,3 +436,32 @@ def test_build_outline_from_toc_skips_unresolved_anchors():
     count = assembler._build_outline_from_toc(writer, anchors, {"A": 0})
     assert count == 1
     assert [call[0] for call in writer.calls] == ["Chapter One"]
+
+def test_stamp_page_numbers_skips_cover_and_numbers_the_rest(tmp_path):
+    fitz = pytest.importorskip("fitz")
+    doc = fitz.open()
+    for _ in range(3):
+        doc.new_page(width=400, height=600)
+    pdf = tmp_path / "plain.pdf"
+    doc.save(str(pdf))
+    doc.close()
+
+    stamped = assembler._stamp_page_numbers(str(pdf), skip_pages=1)
+    assert stamped == 2
+
+    opened = fitz.open(str(pdf))
+    try:
+        assert opened[0].get_text().strip() == ""
+        assert "2" in opened[1].get_text()
+        assert "3" in opened[2].get_text()
+    finally:
+        opened.close()
+
+
+def test_flatten_outline_titles_walks_nested_entries():
+    class _Item:
+        def __init__(self, title):
+            self.title = title
+
+    items = [_Item("A"), [_Item("B"), _Item("C")]]
+    assert assembler._flatten_outline_titles(items) == {"A", "B", "C"}

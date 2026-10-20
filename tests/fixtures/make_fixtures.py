@@ -353,6 +353,49 @@ def build_pxlayout() -> Path:
     return _write(book, "pxlayout.epub")
 
 
+PARTIALHEADS_CSS = """
+body { font-family: "Segoe UI", sans-serif; }
+p.PartStart { font-size: 1.6em; font-weight: bold; margin: 1em 0; }
+"""
+
+
+def build_partialheads() -> Path:
+    """Many chapters, but only the first uses a real ``<h1>``.
+
+    The rest simulate headings with ``<p class="PartStart">``, so Chromium's
+    ``generateDocumentOutline`` emits just one or two bookmarks for the whole
+    book.  The assembler must top the outline up from chapter anchors.
+    """
+    book = _new_book("fixture-partialheads", "Partial Headings Fixture")
+    style = _add_style(book, PARTIALHEADS_CSS)
+
+    chapters = []
+    for index in range(1, 16):
+        title = f"Part {index}: Chapter Title"
+        chapter = epub.EpubHtml(
+            title=title, file_name=f"part{index}.xhtml", lang="en"
+        )
+        heading = (
+            f"<h1>{title}</h1>" if index == 1
+            else f'<p class="PartStart">{title}</p>'
+        )
+        chapter.content = (
+            f"<html><head><title>{title}</title></head><body>"
+            f"{heading}"
+            f"<p>Paragraph one of {title} in the partial headings fixture.</p>"
+            f"<p>Paragraph two of {title} in the partial headings fixture.</p>"
+            "</body></html>"
+        )
+        chapter.add_item(style)
+        book.add_item(chapter)
+        chapters.append(chapter)
+
+    book.toc = [epub.Link(ch.file_name, ch.title, ch.file_name) for ch in chapters]
+    book.spine = ["nav", *chapters]
+    _add_ncx_nav(book)
+    return _write(book, "partialheads.epub")
+
+
 def main() -> None:
     FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
     for builder in (
@@ -363,6 +406,7 @@ def main() -> None:
         build_zeromargin,
         build_tinyfont,
         build_pxlayout,
+        build_partialheads,
     ):
         path = builder()
         print(f"wrote {path} ({path.stat().st_size} bytes)")

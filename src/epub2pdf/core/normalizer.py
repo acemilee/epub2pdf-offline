@@ -613,17 +613,33 @@ def _rewrite_relative_paths(
     return _serialize_fragment_children(root)
 
 
+_LANG_RE = re.compile(r"[^A-Za-z0-9-]+")
+
+
+def _html_lang(language: str | None) -> str:
+    """Return a valid BCP-47-ish ``lang`` attribute value for the book.
+
+    Chromium only hyphenates (``hyphens: auto``) when the document language
+    is known, so passing the EPUB's dc:language through keeps justified
+    lines from turning into rivers of whitespace.
+    """
+    cleaned = _LANG_RE.sub("-", (language or "").strip())
+    cleaned = cleaned.strip("-")
+    return cleaned or "und"
+
+
 def _html5_wrap(
     body_html: str,
     head_extras: str,
     title: str,
     layout: Layout | None = None,
+    language: str | None = None,
 ) -> str:
     """Wrap arbitrary HTML body fragments in a complete HTML5 document."""
     layout = layout or A4_LAYOUT
     return (
         "<!DOCTYPE html>\n"
-        '<html lang="und">\n'
+        f'<html lang="{_html_lang(language)}">\n'
         "<head>\n"
         '<meta charset="utf-8">\n'
         f"<title>{escape(title)}</title>\n"
@@ -1037,7 +1053,9 @@ def normalize(book: EpubBook, work_dir: str, layout: Layout | None = None) -> No
     head_extras = f"<style>\n{inline_css}\n</style>"
 
     # 4. Final document
-    final_html = _html5_wrap(body_html, head_extras, book.title, layout)
+    final_html = _html5_wrap(
+        body_html, head_extras, book.title, layout, language=book.language
+    )
 
     index_path = os.path.join(work_dir, "index.html")
     Path(index_path).write_text(final_html, encoding="utf-8")

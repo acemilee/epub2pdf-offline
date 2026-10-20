@@ -32,6 +32,7 @@ from pypdf import PdfReader, PdfWriter
 from pypdf.generic import (
     ArrayObject,
     DecodedStreamObject,
+    DictionaryObject,
     NameObject,
     RectangleObject,
 )
@@ -433,6 +434,129 @@ def _add_outline(
         except Exception:
             pass
 
+_SPARSE_OUTLINE_RATIO = 0.35
+
+
+def _flatten_outline_titles(items) -> set[str]:
+    """Collect every bookmark title from pypdf's nested outline structure."""
+    titles: set[str] = set()
+
+    def walk(nodes) -> None:
+        for node in nodes or ():
+            if isinstance(node, list):
+                walk(node)
+                continue
+            title = getattr(node, "title", None)
+            if title:
+                titles.add(str(title).strip())
+
+    try:
+        walk(items)
+    except Exception:
+        return titles
+    return titles
+
+
+def _supplement_outline(
+    writer: PdfWriter,
+    raw_reader: PdfReader,
+    book: EpubBook,
+    page_texts: list[str],
+    page_offset: int,
+) -> int:
+    """Add chapter bookmarks when Chromium's outline is suspiciously sparse.
+
+    Some EPUBs simulate headings with ``<p class="PartStart">`` instead of
+    ``h1``-``h6``; Chromium then emits only one or two bookmarks for the whole
+    book.  The invisible chapter anchors still know where every chapter
+    starts, so those chapters are appended as flat top-level entries.
+    """
+    body_chapters = [
+        ch for ch in book.chapters if not ch.is_cover_only and not ch.is_nav
+    ]
+    if len(body_chapters) < 3:
+        return 0
+    existing = _flatten_outline_titles(getattr(writer, "outline", None))
+    if len(existing) >= max(3, int(len(body_chapters) * _SPARSE_OUTLINE_RATIO)):
+        return 0
+
+    anchor_ids = {ch.id for ch in body_chapters}
+    anchor_pages = _find_anchor_pages(raw_reader, anchor_ids, page_texts=page_texts)
+    added = 0
+    for ch in body_chapters:
+        title = _dedupe_title(str(ch.title or "").strip())
+        if not title or title in existing:
+            continue
+        page = anchor_pages.get(ch.id)
+        if page is None:
+            continue
+        try:
+            writer.add_outline_item(title, page + page_offset)
+        except Exception:
+            continue
+        existing.add(title)
+        added += 1
+    return added
+
+
+def _stamp_page_numbers(
+    pdf_path: str,
+    *,
+    skip_pages: int = 0,
+    layout=None,
+    deadline: float | None = None,
+) -> int:
+    """Draw a centered page number in the bottom margin of every page.
+
+    The cover is left unnumbered.  Numbers are the physical PDF page index so
+    they stay consistent with the generated table of contents and bookmarks.
+    Uses PyMuPDF (already a runtime dependency) and its built-in Helvetica.
+    """
+    try:
+        import fitz  # PyMuPDF
+    except ModuleNotFoundError:
+        return 0
+    try:
+        doc = fitz.open(pdf_path)
+    except Exception:
+        return 0
+
+    base_font = float(getattr(layout, "font_size_pt", 11.0) or 11.0)
+    font_size = max(7.0, min(9.0, round(base_font * 0.82, 1)))
+    bottom_margin = float(getattr(layout, "margin_bottom_pt", 56.7) or 56.7)
+    stamped = 0
+    try:
+        for index in range(max(0, skip_pages), doc.page_count):
+            if deadline is not None and time.monotonic() >= deadline:
+                raise AssembleError("conversion timed out during page numbering")
+            page = doc[index]
+            label = str(index + 1)
+            try:
+                text_width = fitz.get_text_length(
+                    label, fontname="helv", fontsize=font_size
+                )
+            except Exception:
+                text_width = font_size * 0.55 * len(label)
+            x = (page.rect.width - text_width) / 2.0
+            y = page.rect.height - bottom_margin / 2.0 + font_size * 0.35
+            try:
+                page.insert_text(
+                    (x, y),
+                    label,
+                    fontname="helv",
+                    fontsize=font_size,
+                    color=(0.35, 0.35, 0.35),
+                )
+            except Exception:
+                continue
+            stamped += 1
+        if stamped:
+            doc.saveIncr()
+    finally:
+        doc.close()
+    return stamped
+
+
 def assemble(
     raw_pdf_path: str,
     output_pdf_path: str,
@@ -443,6 +567,7 @@ def assemble(
     toc_page_title: str | None = None,
     outline_source: str = "chromium",
     layout=None,
+    page_numbers: bool = True,
 ) -> int:
     """Post-process the msedge-produced PDF.
 
@@ -457,6 +582,8 @@ def assemble(
             localized "目录" / "Contents".
         layout: ``layout.Layout`` used for the body; drives cover fill mode and
             TOC scaling.  None keeps the A4/v1.1.1 behaviour.
+        page_numbers: Draw physical page numbers in the bottom margin (the
+            cover page is left unnumbered).  Default True.
 
     Returns:
         Page count of the final PDF.
@@ -640,6 +767,15 @@ def assemble(
             cover_offset=page_offset,
             page_texts=page_texts,
         )
+    elif outline_source != "ncx":
+        # Chromium produced *some* outline, but it may be too sparse for books
+        # whose "headings" are styled paragraphs.  Top up with chapter anchors.
+        try:
+            outline_count += _supplement_outline(
+                writer, reader, book, page_texts, page_offset
+            )
+        except Exception:
+            pass
 
     # --- Clickable TOC rows ---
     if toc_pages and toc_link_specs:
@@ -695,6 +831,24 @@ def assemble(
                 if k not in info:
                     info[k] = v
         writer.add_metadata(info)
+        # Native PDFs carry the document language and ask viewers to show the
+        # title in their window chrome instead of the file name.
+        try:
+            from pypdf.generic import BooleanObject, TextStringObject
+
+            if book.language:
+                writer._root_object.update(
+                    {NameObject("/Lang"): TextStringObject(book.language)}
+                )
+            writer._root_object.update(
+                {
+                    NameObject("/ViewerPreferences"): DictionaryObject(
+                        {NameObject("/DisplayDocTitle"): BooleanObject(True)}
+                    )
+                }
+            )
+        except Exception:
+            pass
     except Exception as e:
         # Metadata failure should not abort the whole conversion
         import sys
@@ -709,6 +863,13 @@ def assemble(
     try:
         with open(intermediate, "wb") as f:
             writer.write(f)
+        if page_numbers:
+            _stamp_page_numbers(
+                intermediate,
+                skip_pages=len(cover_pages),
+                layout=layout,
+                deadline=deadline,
+            )
         try:
             from .font_embed import embed_missing_fonts
         except ModuleNotFoundError as e:

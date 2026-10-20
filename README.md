@@ -2,7 +2,7 @@
 
 A local Windows app for converting EPUB books to clean, readable PDF files.
 
-![Version](https://img.shields.io/badge/version-1.1.4-blue)
+![Version](https://img.shields.io/badge/version-1.1.5-blue)
 ![License](https://img.shields.io/badge/license-AGPL--3.0--or--later-green)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
@@ -35,7 +35,13 @@ The converter focuses on practical reading quality:
   render them.
 - EPUB navigation and the document's heading hierarchy become nested PDF
   bookmarks (levels follow `h1`–`h6`; the fallback renderer produces a flat,
-  chapter-level outline).
+  chapter-level outline). Books whose "headings" are styled paragraphs get
+  chapter bookmarks added from their chapter anchors instead of a two-item list.
+- Page numbers are printed in the bottom margin of every page (the cover is
+  left unnumbered), matching the generated TOC and bookmark destinations.
+  `--no-page-numbers` disables them.
+- The PDF carries the EPUB language (`/Lang`) and asks viewers to show the book
+  title in their window chrome, like a natively produced PDF.
 - Conversion runs locally and does not send your files anywhere.
 - The app processes one book at a time to keep large-book conversion stable.
 
@@ -107,6 +113,7 @@ CLI options:
 | `--page-size` | Print page size: `auto` (default: trim size follows the cover ratio, A4 fallback), `A4`, `Letter`, `B5`, `6x9`, `7x10`. |
 | `--page-height-pt` | Page height used by `auto` (default `666` = 9.25in). |
 | `--font-scale` | Body font size relative to the page width: `auto` (40 characters per line), `compact` (-8%), `normal`, `loose` (+10%). |
+| `--no-page-numbers` | Do not print page numbers in the bottom margin. |
 | `--debug` | Print a full Python traceback when conversion fails. |
 
 ## Run From Source
@@ -199,4 +206,5 @@ later. See [LICENSE](LICENSE) for the full license text.
 
 Third-party dependency notices are listed in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 

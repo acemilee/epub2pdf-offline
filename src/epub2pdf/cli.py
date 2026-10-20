@@ -45,6 +45,7 @@ def convert(
     page_size: str = "auto",
     page_height_pt: float | None = None,
     font_scale: str = "auto",
+    page_numbers: bool = True,
 ) -> str:
     """Convert one .epub to .pdf. Returns the output path.
 
@@ -62,6 +63,7 @@ def convert(
             ``A4``, ``Letter``, ``B5``, ``6x9``, ``7x10``.
         page_height_pt: Page height for auto layouts (default 9.25in = 666pt).
         font_scale: ``auto`` | ``compact`` | ``normal`` | ``loose``.
+        page_numbers: Draw page numbers in the bottom margin (default True).
     """
     def emit(stage, percent):
         if progress_cb:
@@ -206,6 +208,7 @@ def convert(
             toc_anchors=normalize_result.toc_anchors,
             outline_source=outline_source,
             layout=print_layout,
+            page_numbers=page_numbers,
         )
         timings["assemble"] = time.monotonic() - stage_started
         elapsed = time.time() - started
@@ -254,6 +257,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="page height for --page-size auto (default 9.25in = 666pt)")
     ap.add_argument("--font-scale", choices=("auto", "compact", "normal", "loose"),
                     default="auto", help="body font size relative to the page width")
+    ap.add_argument("--no-page-numbers", dest="page_numbers", action="store_false",
+                    help="do not draw page numbers in the bottom margin")
     args = ap.parse_args(argv)
 
     try:
@@ -268,6 +273,7 @@ def main(argv: list[str] | None = None) -> int:
             page_size=args.page_size,
             page_height_pt=args.page_height_pt,
             font_scale=args.font_scale,
+            page_numbers=args.page_numbers,
         )
         return 0
     except ConversionCancelled:

@@ -1,3 +1,34 @@
+# EPUB2PDF v1.1.5
+
+Reading-feel release: body pages now carry page numbers, sparse bookmarks are
+topped up from chapter anchors, and the PDF declares its language the way a
+native publication does.
+
+## Added
+
+- **Page numbers.** A centered number is drawn in the bottom margin of every
+  page (the cover stays clean), using the physical page index so it matches the
+  generated table of contents and bookmark destinations. Disable with
+  `--no-page-numbers` or `page_numbers=False`.
+- **Bookmark top-up for books without real headings.** EPUBs that fake headings
+  with `<p class="PartStart">` used to produce only one or two PDF bookmarks.
+  When the Chromium outline is suspiciously sparse, chapter anchors now add flat
+  chapter-level bookmarks (e.g. Advances in Financial Machine Learning went from
+  2 to 6 entries where the source has 7 spine chunks).
+- **Document language metadata.** The PDF catalog now carries `/Lang` from the
+  EPUB's `dc:language`, and `/ViewerPreferences /DisplayDocTitle` asks viewers to
+  title the window with the book name instead of the file name.
+
+## Verification
+
+- Unit + e2e suite green (real Edge); new fixture `partialheads.epub` covers the
+  sparse-outline path; new e2e tests assert footer numbers equal the page index,
+  that `--no-page-numbers` removes them, and that the sparse outline is topped up.
+- Real books: Systematic Trading (330 pages, auto 471.3×666pt) shows `2…330` in
+  the footer and keeps its 305 nested bookmarks; Advances keeps all 266 pages and
+  now exposes 6 chapter bookmarks instead of 2. `basic.epub` output verifies
+  `/Lang en` and `DisplayDocTitle true` survive the font-embedding pass.
+
 # EPUB2PDF v1.1.4
 
 Reading-quality release: the generated TOC is now completely rule-free, undersized

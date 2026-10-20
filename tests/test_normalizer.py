@@ -457,3 +457,13 @@ def test_rewrite_relative_paths_clamps_inline_px_widths():
 
     assert "width:min(600px, 100%)" in out
     assert 'width="600px"' not in out
+
+def test_html_lang_uses_epub_language():
+    html = normalizer._html5_wrap("<p>x</p>", "", "T", None, language="zh-CN")
+    assert '<html lang="zh-CN">' in html
+
+
+def test_html_lang_defaults_to_und_and_sanitizes():
+    assert normalizer._html_lang(None) == "und"
+    assert normalizer._html_lang("   ") == "und"
+    assert normalizer._html_lang("en_US") == "en-US"

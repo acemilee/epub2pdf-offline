@@ -92,6 +92,23 @@ def find_heading_page(doc, heading: str) -> int | None:
     return None
 
 
+RUNNING_CHROME_BAND_PT = 45.0
+RUNNING_CHROME_MAX_SIZE = 8.5
+
+
+def _is_running_chrome(page, span) -> bool:
+    """True for stamped page numbers / running heads (not body text)."""
+    size = float(span.get("size", 0) or 0)
+    if size > RUNNING_CHROME_MAX_SIZE:
+        return False
+    rect = page.rect
+    y0, y1 = span["bbox"][1], span["bbox"][3]
+    return (
+        y0 < rect.y0 + RUNNING_CHROME_BAND_PT
+        or y1 > rect.y1 - RUNNING_CHROME_BAND_PT
+    )
+
+
 def text_page_margins(page) -> tuple[float, float, float, float] | None:
     """Return ``(left, top, right, bottom)`` margins of visible text.
 
@@ -103,6 +120,8 @@ def text_page_margins(page) -> tuple[float, float, float, float] | None:
         for line in block.get("lines", []):
             for span in line.get("spans", []):
                 if span.get("size", 0) > 2.0 and span.get("text", "").strip():
+                    if _is_running_chrome(page, span):
+                        continue
                     boxes.append(span["bbox"])
     if not boxes:
         return None
@@ -122,6 +141,8 @@ def body_font_sizes(doc, start: int = 2) -> list[float]:
             for line in block.get("lines", []):
                 for span in line.get("spans", []):
                     if span.get("size", 0) > 3.0 and span.get("text", "").strip():
+                        if _is_running_chrome(page, span):
+                            continue
                         sizes.append(float(span["size"]))
     return sizes
 

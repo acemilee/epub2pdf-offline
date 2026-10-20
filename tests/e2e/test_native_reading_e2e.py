@@ -76,8 +76,16 @@ def test_body_pages_carry_running_headers(tmp_path):
         doc.close()
     assert headers[0] == ""  # generated TOC page stays clean
     # Index 1 is a title/nav page whose content sits at the very top; from
-    # index 2 on, only the stamped running head should appear there.
+    # index 2 on, only the stamped running head should appear there.  The head
+    # is mirrored: even physical pages carry the book title, odd pages the
+    # chapter title (the chapter opener is left blank).
     assert any("Long Chapter Fixture" in text for text in headers[2:]), headers
+    for index in range(3, len(headers)):
+        physical = index + 1
+        if physical % 2 == 0:
+            assert "Long Chapter Fixture" in headers[index], (index, headers)
+        else:
+            assert "Chapter One" in headers[index], (index, headers)
     assert all("EPBPFANCHOR" not in text for text in headers)
 
 

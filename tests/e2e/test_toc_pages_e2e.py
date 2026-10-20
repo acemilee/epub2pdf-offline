@@ -35,6 +35,9 @@ def test_generated_toc_page_has_page_numbers_matching_outline(tmp_path):
         toc_index = _generated_toc_page(doc)
         assert toc_index is not None
         toc_text = doc[toc_index].get_text()
+        # The contents page must not list itself: the title word appears once.
+        title_word = "Contents" if "Contents" in toc_text else "目录"
+        assert toc_text.count(title_word) == 1, toc_text[:300]
         for title in ("Chapter One: Alpha", "Chapter Two: Beta"):
             assert title in toc_text
 

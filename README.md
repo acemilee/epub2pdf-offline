@@ -2,7 +2,7 @@
 
 A local Windows app for converting EPUB books to clean, readable PDF files.
 
-![Version](https://img.shields.io/badge/version-1.2.0-blue)
+![Version](https://img.shields.io/badge/version-1.2.1-blue)
 ![License](https://img.shields.io/badge/license-AGPL--3.0--or--later-green)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
@@ -23,6 +23,9 @@ The converter focuses on practical reading quality:
   numbers that match the final PDF and clickable rows. The generated page draws
   no rules or dot leaders at all, so entries read like a native book TOC; long
   titles wrap onto a second line instead of being cut with an ellipsis.
+- Running heads mirror a printed book: odd (recto) pages carry the chapter
+  title, even (verso) pages the book title, and chapter openers stay clean. The
+  generated contents page never lists itself (no `Contents .... 10` row).
 - Links look like a native book: link text keeps the body colour (no browser
   blue, no underline), internal references are flattened into real in-PDF page
   links instead of links to the temporary HTML files, and external HTTP links

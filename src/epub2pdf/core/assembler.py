@@ -459,6 +459,39 @@ def _dedupe_title(title: str) -> str:
     return text
 
 
+# Titles that mean "this is the book's own table of contents".  A generated TOC
+# should not list them: a printed contents page never points at itself.
+_SELF_TOC_TITLES = {
+    "contents",
+    "table of contents",
+    "brief contents",
+    "目录",
+    "目 录",
+    "简目",
+}
+
+
+def _normalize_toc_title(title: str) -> str:
+    return " ".join(str(title or "").split()).casefold()
+
+
+def _filter_self_toc_entries(toc_anchors):
+    """Drop entries that are the book's own contents page from a generated TOC.
+
+    Navigation documents usually start with a "Contents" entry pointing at the
+    nav page itself.  Rendering it produces a contents page whose first line is
+    "Contents .... 10", which looks obviously machine-generated.
+    """
+    if not toc_anchors:
+        return tuple()
+    kept = [
+        entry
+        for entry in toc_anchors
+        if _normalize_toc_title(getattr(entry, "title", "")) not in _SELF_TOC_TITLES
+    ]
+    return tuple(kept) if kept else tuple()
+
+
 def _copy_outline(
     writer: PdfWriter,
     raw_reader: PdfReader,
@@ -784,7 +817,8 @@ def _stamp_running_headers(
 ) -> int:
     """Draw a small centered running head in the top margin.
 
-    Paper books carry a running head (book or chapter title); adding a quiet
+    Paper books carry a mirrored running head: recto (odd) pages show the
+    chapter title, verso (even) pages show the book title.  Adding a quiet
     grey one is what makes a generated PDF feel typeset instead of printed
     from a browser.  Chapter titles come from the same anchors used for the
     bookmarks, so the header always agrees with the navigation.
@@ -814,7 +848,17 @@ def _stamp_running_headers(
         for index in range(max(0, skip_pages), doc.page_count):
             if deadline is not None and time.monotonic() >= deadline:
                 raise AssembleError("conversion timed out during running headers")
-            label = chapter_pages.get(index - skip_pages) or book_title or ""
+            chapter_title = (chapter_pages.get(index - skip_pages) or "").strip()
+            page_number = index + 1
+            if chapter_title:
+                # Mirror the head like a printed book: recto (odd) carries the
+                # chapter title, verso (even) carries the book title.
+                if page_number % 2 == 1:
+                    label = chapter_title
+                else:
+                    label = book_title or chapter_title
+            else:
+                label = book_title or ""
             label = label.strip()
             if not label:
                 continue
@@ -1041,7 +1085,8 @@ def assemble(
     # anchors in the raw body PDF.
     toc_pages: list = []
     toc_link_specs: tuple = ()
-    if toc_anchors:
+    display_toc_anchors = _filter_self_toc_entries(toc_anchors)
+    if display_toc_anchors:
         check_timeout()
         toc_work = os.path.join(
             os.path.dirname(raw_pdf_path) or ".", f"toc-{uuid.uuid4().hex}"
@@ -1061,7 +1106,7 @@ def assemble(
                 book.language
             )
             toc_result = toc_page.render_toc_pdf(
-                toc_anchors,
+                display_toc_anchors,
                 _build_page_index(page_texts),
                 page_width_pt=body_page_size[0],
                 page_height_pt=body_page_size[1],
@@ -1252,9 +1297,14 @@ def assemble(
             for ch in book.chapters
             if not ch.is_cover_only and not ch.title_is_fallback
         }
-        for anchor_id, page_index in anchor_page_index.items():
-            title = chapter_titles.get(anchor_id)
-            if title:
+        starts = sorted(
+            (page_index, chapter_titles[anchor_id])
+            for anchor_id, page_index in anchor_page_index.items()
+            if anchor_id in chapter_titles
+        )
+        for position, (start, title) in enumerate(starts):
+            end = starts[position + 1][0] if position + 1 < len(starts) else len(page_texts)
+            for page_index in range(start, max(start, end)):
                 chapter_pages.setdefault(page_index, title)
     try:
         with open(intermediate, "wb") as f:

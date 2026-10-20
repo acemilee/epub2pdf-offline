@@ -540,9 +540,24 @@ def test_stamp_running_headers_uses_chapter_and_book_title(tmp_path):
         texts = [opened[i].get_text() for i in range(3)]
     finally:
         opened.close()
-    assert "My Book" in texts[0]
-    assert "Chapter One" in texts[1]
-    assert "Chapter One" in texts[2]
+    assert "My Book" in texts[0]  # no chapter yet -> book title
+    assert "My Book" in texts[1]  # verso (physical page 2) -> book title
+    assert "Chapter One" in texts[2]  # recto (physical page 3) -> chapter title
+
+
+def test_filter_self_toc_entries_drops_the_contents_page():
+    from types import SimpleNamespace
+
+    entries = [
+        SimpleNamespace(title="Contents", anchor_id="a"),
+        SimpleNamespace(title="  Table of Contents ", anchor_id="b"),
+        SimpleNamespace(title="Chapter One", anchor_id="c"),
+        SimpleNamespace(title="目录", anchor_id="d"),
+    ]
+    kept = assembler._filter_self_toc_entries(entries)
+    assert [entry.title for entry in kept] == ["Chapter One"]
+    assert assembler._filter_self_toc_entries([]) == tuple()
+    assert assembler._filter_self_toc_entries([entries[0]]) == tuple()
 
 
 def test_stamp_running_headers_supports_cjk_titles(tmp_path):

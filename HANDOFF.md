@@ -7,7 +7,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 当前版本 | **v1.2.0**（2026-10-20，原生阅读感：平面编号导航自动嵌套成多级书签；基线 v1.1.9 = 正文链接原生（去蓝/去下划线 + 页内跳转）；v1.1.8 = 目录页长标题两行折行；v1.1.7 = 稀疏书签用 EPUB 导航补全；v1.1.6 = 页眉；v1.1.5 = 页脚页码 + 语言元数据；v1.1.4 = 目录无横线 + 字号 9pt 下限 + 绝对 px 适配；v1.1.2 = auto 开本 + GUI 手动开始） |
+| 当前版本 | **v1.2.1**（2026-10-20，原生阅读感：生成目录不再自引用；页眉按奇偶镜像——单页章名、双页书名；基线 v1.2.0 = 平面编号导航嵌套书签） |
 | 代码基线 | 发布提交见 §9（tag `v1.2.0` = `86a87f2`）；上一版 `v1.1.9` = `0c7804e`、`v1.1.8` = `7c0324e`、`v1.1.7` = `caf0126`、`v1.1.6` = `f2b498b`，`v1.1.5` = `5a85bd3`，`v1.1.4` = `13eca87`，`v1.1.3` = `7302e24`，`v1.1.2` = `8d86e0d`，`v1.1.1` = `512806f`，`v1.1.0` = `0b04e48` |
 | 运行环境 | Windows 10/11 + Microsoft Edge（本机 **155.0.4283.62**） |
 | 开发解释器 | `F:\python313\python.exe`（3.13.9，依赖齐全）；**仓库内没有可用的 `.venv`** |
@@ -89,6 +89,13 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 
 ## 4. 变更清单
 
+### v1.2.1（2026-10-20）
+
+- 生成目录过滤自引用条目（标题为 Contents / Table of Contents / 目录 / 简目 的条目），目录页不再出现 `Contents .... 10` 这类自指行；EPUB 原生目录页仍在正文保留。
+- 页眉按纸书镜像：物理奇数页（recto）章名、偶数页（verso）书名；同时修正 `chapter_pages` 只记录章起始页的问题——现在每页都映射到所属章，续页也能拿到章名。
+- 新增 `_filter_self_toc_entries` / `_normalize_toc_title`、`_SELF_TOC_TITLES`；e2e 增加奇偶页眉断言与“目录标题词只出现一次”断言；conftest 排版测量排除页眉/页脚（8.5pt 以下且位于上下 45pt 带内）。
+- 版本 `1.2.1`；README/RELEASE_NOTES/HANDOFF/lessons 更新。
+
 ### v1.2.0（2026-10-20）
 
 - `assembler.py`：新增 `_infer_numbering_level`、`_with_inferred_levels`、`_NUMBERED_TITLE_RE`（支持 `1`/`1.1`/`1.1.1`/`16.A.1` 字母段）、`_CHAPTER_WORD_RE`；`_build_outline_from_toc` 在构建书签前对**平面导航**按标题编号推导层级（仅当现有层级只有一层且 ≥60% 标题带编号；每步最多加深一级，四位数年份不识别；已有层级的导航不动）。
@@ -168,6 +175,13 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 - 新增 `toc_page.py`（生成目录页、可点击行、两遍稳定页码）；`TocAnchor`/`NormalizeResult`；NCX 备选；封面 magic 嗅探；嵌套导航 tuple 递归；GUI 打开输出目录；PyMuPDF 文本抽取快路径；`--outline-source`。
 
 ## 5. 验证证据
+
+**v1.2.1（2026-10-20，本机实测）**
+
+- 生成目录：Systematic 首页前三行为 `About the author 13` / `Preface 14` / `Systematic trading and investing 14`，不再有 `Contents 10` 自引用；中文书首行为 `版权信息 3`，不再有 `目录`。
+- 镜像页眉：Systematic p20 偶数 `Systematic Trading`、p21 奇数 `Introduction`、p22 `Systematic Trading`、p23 `Introduction`；中文书 p25 `前 言`、p26 书名交替。
+- 测试：144 passed（e2e 34）；本轮新增/修改：`tests/test_assembler.py`（`_filter_self_toc_entries`、页眉奇偶）、`tests/e2e/test_native_reading_e2e.py`（recto/verso 断言）、`tests/e2e/test_toc_pages_e2e.py`（目录标题词唯一）、`tests/e2e/conftest.py`（测量排除页眉页脚）。
+- 打包与提交见 §9。
 
 **v1.2.0（2026-10-20，本机实测）**
 - 全量 `pytest` → **143 passed in 125.77s**（e2e 33）；新增编号解析/嵌套单测与 `flatnumbered` e2e 全绿。
@@ -280,6 +294,8 @@ isible=True。
 | --- | --- | --- |
 | 小节书签提取 | 从 `<p class="PartStart">` 等样式化段落识别标题（按 class/字号/加粗启发式），补章内小节书签 | Advances 章内小节仍无书签（导航为扁平） |
 | 平面编号导航嵌套 | 按标题编号（`1`/`1.1`/`1.1.1`/`16.A.1`）把平面导航嵌套成多级书签 | **已完成 v1.2.0** |
+| 目录自引用清理 | 生成目录不再列出 Contents/目录 自身条目 | **已完成 v1.2.1** |
+| 镜像页眉 | 单页章名、双页书名；每页映射到所属章 | **已完成 v1.2.1** |
 | 目录页进阶 | 可选“只列章/两级条目”、是否省略导航页条目（超长标题两行已在 v1.1.8 落地） | 部分完成 |
 | 章节页脚/页眉细节 | 偶数页放书名、奇数页放章名（镜像页眉），或在页眉加页码 | 当前统一居中，未做奇偶区分 |
 | 固定版式 EPUB | 识别 pre-paginated/viewport 与扫描版，按原始页尺寸渲染 | 当前按可重排，需求未确认 |
@@ -303,4 +319,5 @@ isible=True。
 | 2026-10-20 | v1.1.8 | 目录页超长标题两行折行（行高/链接自适应、去省略号）；`longtoc.epub` + 单测/e2e；136 项测试（e2e 31）；发布提交 `7c0324e` / tag `v1.1.8` |
 | 2026-10-20 | v1.1.7 | 稀疏书签改用 EPUB 导航补全成完整层级（Advances 6→244 条）；`partialnested.epub` fixture + e2e；132 项测试（e2e 30）；发布提交 `caf0126` / tag `v1.1.7` |
 | 2026-10-20 | v1.1.9 | 正文链接原生：`a/a */:visited` 继承正文颜色无下划线、跨文件 href 归一为文档内 fragment、catalog `/Dests` 命名目标解析为最终页链接（Systematic 页内链接 137→1071、file 链接 934→0、蓝字 276→0）；`links.epub` fixture + 单测/e2e；139 项测试（e2e 32）；发布提交 `0c7804e` / tag `v1.1.9` |
+| 2026-10-20 | v1.2.1 | 目录不再自引用（Contents/Table of Contents/目录 条目从生成目录剔除）；页眉奇偶镜像（单页章名/双页书名，chapter_pages 覆盖全部正文页）；144 项测试（e2e 34）；发布提交待填 |
 | 2026-10-20 | v1.2.0 | 平面编号导航按编号嵌套成多级书签（Advances 244 条由 1 层→2 层：98+146；Systematic 305/4、中文书 124/3 不变）；`flatnumbered.epub` + 3 单测 + e2e；143 项测试（e2e 33）；发布提交 `86a87f2` / tag `v1.2.0` |

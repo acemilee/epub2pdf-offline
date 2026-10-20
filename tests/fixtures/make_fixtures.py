@@ -551,6 +551,46 @@ def build_links() -> Path:
     return _write(book, "links.epub")
 
 
+def build_flatnumbered() -> Path:
+    """Flat EPUB navigation whose entries are numbered (``1``, ``1.1``, ``1.1.1``).
+
+    Chromium sees no real headings (titles are ``<p class="PartStart">``), so the
+    assembler falls back to the EPUB navigation.  The navigation document itself
+    is flat (InDesign habit); the numbering is the only depth information, so the
+    bookmark tree must be nested from it.
+    """
+    book = _new_book("fixture-flatnumbered", "Flat Numbered Fixture")
+    style = _add_style(book, PARTIALHEADS_CSS)
+    titles = [
+        "1 Introduction",
+        "1.1 Motivation",
+        "1.1.1 Details",
+        "2 Methods",
+        "2.1 Setup",
+    ]
+    chapters = []
+    for index, title in enumerate(titles, start=1):
+        chapter = epub.EpubHtml(
+            title=title, file_name=f"flat{index}.xhtml", lang="en"
+        )
+        chapter.content = (
+            f"<html><head><title>{title}</title></head><body>"
+            f'<p class="PartStart">{title}</p>'
+            f"<p>Body text for {title}.</p>"
+            "</body></html>"
+        )
+        chapter.add_item(style)
+        book.add_item(chapter)
+        chapters.append(chapter)
+    book.toc = [
+        epub.Link(ch.file_name, title, ch.file_name)
+        for ch, title in zip(chapters, titles)
+    ]
+    book.spine = ["nav", *chapters]
+    _add_ncx_nav(book)
+    return _write(book, "flatnumbered.epub")
+
+
 def main() -> None:
     FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
     for builder in (
@@ -566,6 +606,7 @@ def main() -> None:
         build_longchapter,
         build_longtoc,
         build_links,
+        build_flatnumbered,
     ):
         path = builder()
         print(f"wrote {path} ({path.stat().st_size} bytes)")

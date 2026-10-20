@@ -7,8 +7,8 @@
 
 | 项 | 值 |
 | --- | --- |
-| 当前版本 | **v1.1.9**（2026-10-20，原生阅读感：正文链接去网页化 + 跨章/书内引用变成真正可点击的页内链接；基线 v1.1.8 = 目录页长标题两行折行；v1.1.7 = 稀疏书签用 EPUB 导航补全成多级；v1.1.6 = 页眉 running head；v1.1.5 = 页脚页码 + 稀疏书签补全 + PDF 语言元数据；v1.1.4 = 目录无横线 + 字号 9pt 下限 + 绝对 px 适配；v1.1.2 = auto 开本 + GUI 手动开始 + 容错读 EPUB） |
-| 代码基线 | 发布提交见 §9（tag `v1.1.9` = `0c7804e`）；上一版 `v1.1.8` = `7c0324e`、`v1.1.6` = `f2b498b`，`v1.1.5` = `5a85bd3`，`v1.1.4` = `13eca87`，`v1.1.3` = `7302e24`，`v1.1.2` = `8d86e0d`，`v1.1.1` = `512806f`，`v1.1.0` = `0b04e48` |
+| 当前版本 | **v1.2.0**（2026-10-20，原生阅读感：平面编号导航自动嵌套成多级书签；基线 v1.1.9 = 正文链接原生（去蓝/去下划线 + 页内跳转）；v1.1.8 = 目录页长标题两行折行；v1.1.7 = 稀疏书签用 EPUB 导航补全；v1.1.6 = 页眉；v1.1.5 = 页脚页码 + 语言元数据；v1.1.4 = 目录无横线 + 字号 9pt 下限 + 绝对 px 适配；v1.1.2 = auto 开本 + GUI 手动开始） |
+| 代码基线 | 发布提交见 §9（tag `v1.2.0` = 待填）；上一版 `v1.1.9` = `0c7804e`、`v1.1.8` = `7c0324e`、`v1.1.7` = `caf0126`、`v1.1.6` = `f2b498b`，`v1.1.5` = `5a85bd3`，`v1.1.4` = `13eca87`，`v1.1.3` = `7302e24`，`v1.1.2` = `8d86e0d`，`v1.1.1` = `512806f`，`v1.1.0` = `0b04e48` |
 | 运行环境 | Windows 10/11 + Microsoft Edge（本机 **155.0.4283.62**） |
 | 开发解释器 | `F:\python313\python.exe`（3.13.9，依赖齐全）；**仓库内没有可用的 `.venv`** |
 | 当前计划 | [docs/plans/v1.1.2.md](docs/plans/v1.1.2.md)（v0.2，**已执行完成**）；上一版 [docs/plans/v1.1.1.md](docs/plans/v1.1.1.md)（v0.2，已完成） |
@@ -23,7 +23,7 @@
 - **正文链接像原生 PDF（v1.1.9）**：打印 CSS 强制链接文字继承正文颜色、无下划线（EPUB 的 `span.URL {color:blue}` 不再生效）；跨文件 href（`chapter2.xhtml#note`）在打印前归一为文档内 `#fragment`，不再生成会打开临时 HTML 的 file 链接；Chromium 写入 catalog `/Dests` 的同文档命名目标按最终页号解析（含封面+目录页偏移），正文交叉引用因此真正可跳转；外部 http(s) 链接保持可点击。
 - **字号归一化（v1.1.4）**：EPUB CSS（外部样式表与内联 `<style>`）中任何解析后小于 **9pt** 的 `font-size` 都改写为绝对 `9pt`，覆盖嵌套 em、`%`、`rem`、`px` 与 InDesign/Word 导出的偏小类；大于等于 9pt 的标题/展示字号保持原比例。
 - **绝对 px 适配（v1.1.4）**：`width`/`max-width`/`min-width` 的 px 声明若宽于当前文本列，改写为 `min(Npx, 100%)`（`min-width` 置 0），覆盖样式表与内联 `style="..."`；窄 auto 页不再被 500–600px 固定容器撑破。
-- **PDF 书签**：默认 CDP `generateDocumentOutline` 多级书签；`--outline-source ncx` 为备选（层级较浅）。**v1.1.7 起**：若 Chromium outline 稀疏（< max(3, 非封面章数×35%)）且存在 EPUB 导航锚点，改用 **EPUB 导航**生成完整层级书签（*Advances in Financial Machine Learning* 由 6 条增至 **244 条**）；导航页仍逐级保留。无导航锚点时退回章节级扁平补全（v1.1.5 行为）。
+- **PDF 书签**：默认 CDP `generateDocumentOutline` 多级书签；`--outline-source ncx` 为备选（层级较浅）。**v1.1.7 起**：若 Chromium outline 稀疏（< max(3, 非封面章数×35%)）且存在 EPUB 导航锚点，改用 **EPUB 导航**生成完整层级书签（*Advances in Financial Machine Learning* 由 6 条增至 **244 条**）；导航页仍逐级保留。无导航锚点时退回章节级扁平补全（v1.1.5 行为）。**v1.2.0 起**：若导航本身是平面列表（InDesign 常见）但标题带编号（1、1.1、1.1.1、16.A.1），按编号推导层级并嵌套（*Advances in Financial Machine Learning* 244 条由 1 层变为 2 层：98 顶层 + 146 子项；已有层级的导航不改动）。
 - **页脚页码（v1.1.5）**：组装阶段用 PyMuPDF 在每页底部居中写入物理页码（封面不编号；灰色 0.35、字号 = clamp(0.82×正文字号,7,9)pt），与目录页页码、书签目标一致；`--no-page-numbers` 关闭。
 - **页眉 running head（v1.1.6）**：继续页在顶部居中写入小号灰字（章标题，缺失时用书名；CJK 用内置中文字体），章首页因已有大标题而不重复、固定版式/扫描页内容触顶时自动跳过；`--no-running-headers` 关闭。
 - **PDF 原生元数据（v1.1.5）**：catalog 写入 `/Lang`（取 EPUB `dc:language`）与 `/ViewerPreferences /DisplayDocTitle true`，阅读器窗口标题显示书名；`<html lang>` 同步为书语言。
@@ -48,7 +48,7 @@
 **待办 / 下一动作**
 
 1. **下一动作**：无 P0。继续「原生感」目标（goal round）：候选见 §8。
-2. 回归入口：`F:\python313\python.exe -m pytest`（**139 项**全绿，含 e2e 32 项真实 Edge）；`-m e2e` 仅 e2e。
+2. 回归入口：`F:\python313\python.exe -m pytest`（**143 项**全绿，含 e2e 33 项真实 Edge）；`-m e2e` 仅 e2e。
 3. 打包产物待真实大书 smoke（当前仅 fixtures smoke）。
 
 ## 2. 入口与常用命令
@@ -89,6 +89,12 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 
 ## 4. 变更清单
 
+### v1.2.0（2026-10-20）
+
+- `assembler.py`：新增 `_infer_numbering_level`、`_with_inferred_levels`、`_NUMBERED_TITLE_RE`（支持 `1`/`1.1`/`1.1.1`/`16.A.1` 字母段）、`_CHAPTER_WORD_RE`；`_build_outline_from_toc` 在构建书签前对**平面导航**按标题编号推导层级（仅当现有层级只有一层且 ≥60% 标题带编号；每步最多加深一级，四位数年份不识别；已有层级的导航不动）。
+- 测试：新增 fixture `flatnumbered.epub`（平面导航 1/1.1/1.1.1/2/2.1，标题全为 `<p class="PartStart">`）；`tests/test_assembler.py` +3（编号解析、平面嵌套、已有层级保持）；`tests/e2e/test_flatnumbered_outline_e2e.py` 断言书签层级 1/2/3/1/2 与页序；全量 **143 项**（e2e 33）。
+- 真实书：*Advances in Financial Machine Learning* 244 条书签由 1 层 → **2 层**（98 顶层 + 146 子项）；*Systematic Trading* 305/4、中文 fixture 书 124/3 不变（Chromium outline 路径不受影响）。
+- 版本 `1.2.0`；README/RELEASE_NOTES/HANDOFF/lessons 更新。
 ### v1.1.9（2026-10-20）
 
 - `normalizer.py`：`_rewrite_internal_link` / `_chapter_link_map`——跨文件 href 在打印前归一为文档内 fragment（无 fragment 时用目标章首锚点），保留 http(s) 与 mailto；`_POST_EPUB_CSS_TEMPLATE` 增加 `a, a:visited, a *` 继承正文颜色、`text-decoration:none`。
@@ -162,6 +168,14 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 - 新增 `toc_page.py`（生成目录页、可点击行、两遍稳定页码）；`TocAnchor`/`NormalizeResult`；NCX 备选；封面 magic 嗅探；嵌套导航 tuple 递归；GUI 打开输出目录；PyMuPDF 文本抽取快路径；`--outline-source`。
 
 ## 5. 验证证据
+
+**v1.2.0（2026-10-20，本机实测）**
+- 全量 `pytest` → **143 passed in 125.77s**（e2e 33）；新增编号解析/嵌套单测与 `flatnumbered` e2e 全绿。
+- *Advances in Financial Machine Learning*（266 页）`output/v120_adv.pdf`：outline **244 条、深度 2**（`{level1: 98, level2: 146}`），`1.1 Motivation` 位于 `Chapter 1` 之下、`16.A.1 …` 位于 `APPENDICES` 之下；书签数与页数不变。
+- 回归：*Systematic Trading*（330 页）305 条/4 层；中文 fixture 书（284 页）124 条/3 层——均与 v1.1.9 一致。
+- 打包：`dist\EpubToPdf\EpubToPdf.exe` **12,784,762 B**（15:23:51）；打包 exe `--cli` 转 `flatnumbered.epub` → 7 页、书签层级 1/2/3/1/2、Producer `epub2pdf/1.2.0`；转 *Advances* → 266 页、244 条、深度 2（98+146）；GUI offscreen 启动 `visible=True`。
+latnumbered.epub → 7 页、书签层级 1/2/3/1/2、Producer pub2pdf/1.2.0；转 *Advances* → 266 页、244 条、深度 2（98+146）；GUI offscreen 启动 
+isible=True。
 
 **v1.1.9（2026-10-20，本机实测）**
 - 全量 `pytest` → **139 passed in 123.01s**（e2e 32）；新增链接单测与 `test_links_e2e.py` 全绿。
@@ -265,6 +279,7 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 | 候选 | 说明 | 依据/状态 |
 | --- | --- | --- |
 | 小节书签提取 | 从 `<p class="PartStart">` 等样式化段落识别标题（按 class/字号/加粗启发式），补章内小节书签 | Advances 章内小节仍无书签（导航为扁平） |
+| 平面编号导航嵌套 | 按标题编号（`1`/`1.1`/`1.1.1`/`16.A.1`）把平面导航嵌套成多级书签 | **已完成 v1.2.0** |
 | 目录页进阶 | 可选“只列章/两级条目”、是否省略导航页条目（超长标题两行已在 v1.1.8 落地） | 部分完成 |
 | 章节页脚/页眉细节 | 偶数页放书名、奇数页放章名（镜像页眉），或在页眉加页码 | 当前统一居中，未做奇偶区分 |
 | 固定版式 EPUB | 识别 pre-paginated/viewport 与扫描版，按原始页尺寸渲染 | 当前按可重排，需求未确认 |
@@ -288,3 +303,4 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 | 2026-10-20 | v1.1.8 | 目录页超长标题两行折行（行高/链接自适应、去省略号）；`longtoc.epub` + 单测/e2e；136 项测试（e2e 31）；发布提交 `7c0324e` / tag `v1.1.8` |
 | 2026-10-20 | v1.1.7 | 稀疏书签改用 EPUB 导航补全成完整层级（Advances 6→244 条）；`partialnested.epub` fixture + e2e；132 项测试（e2e 30）；发布提交 `caf0126` / tag `v1.1.7` |
 | 2026-10-20 | v1.1.9 | 正文链接原生：`a/a */:visited` 继承正文颜色无下划线、跨文件 href 归一为文档内 fragment、catalog `/Dests` 命名目标解析为最终页链接（Systematic 页内链接 137→1071、file 链接 934→0、蓝字 276→0）；`links.epub` fixture + 单测/e2e；139 项测试（e2e 32）；发布提交 `0c7804e` / tag `v1.1.9` |
+| 2026-10-20 | v1.2.0 | 平面编号导航按编号嵌套成多级书签（Advances 244 条由 1 层→2 层：98+146；Systematic 305/4、中文书 124/3 不变）；`flatnumbered.epub` + 3 单测 + e2e；143 项测试（e2e 33）；发布提交待填 / tag `v1.2.0` |

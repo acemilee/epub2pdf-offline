@@ -437,6 +437,58 @@ def test_build_outline_from_toc_skips_unresolved_anchors():
     assert count == 1
     assert [call[0] for call in writer.calls] == ["Chapter One"]
 
+
+def test_infer_numbering_level_reads_depth_from_title():
+    assert assembler._infer_numbering_level("1 Introduction") == 0
+    assert assembler._infer_numbering_level("1.1 Motivation") == 1
+    assert assembler._infer_numbering_level("2.3.4 Details") == 2
+    assert assembler._infer_numbering_level("Chapter 3: Results") == 0
+    assert assembler._infer_numbering_level("Appendix A") == 0
+    assert assembler._infer_numbering_level("Introduction") is None
+    # Four-digit years are not chapter numbers (the pattern caps at 3 digits).
+    assert assembler._infer_numbering_level("2015 was a good year for trading systems") is None
+    assert assembler._infer_numbering_level("x" * 200) is None
+
+
+def test_build_outline_nests_flat_numbered_navigation():
+    writer = _FakeOutlineWriter()
+    anchors = (
+        _toc_anchor("A", "1 Introduction", 0),
+        _toc_anchor("B", "1.1 Motivation", 0),
+        _toc_anchor("C", "1.1.1 Details", 0),
+        _toc_anchor("D", "2 Methods", 0),
+    )
+    anchor_pages = {"A": 0, "B": 1, "C": 2, "D": 3}
+
+    count = assembler._build_outline_from_toc(writer, anchors, anchor_pages)
+
+    assert count == 4
+    parents = [call[2] for call in writer.calls]
+    items = [call[3] for call in writer.calls]
+    assert parents[0] is None
+    assert parents[1] is items[0]
+    assert parents[2] is items[1]
+    assert parents[3] is None
+    assert [call[1] for call in writer.calls] == [0, 1, 2, 3]
+
+
+def test_build_outline_keeps_existing_navigation_nesting():
+    writer = _FakeOutlineWriter()
+    anchors = (
+        _toc_anchor("A", "Part One", 0),
+        _toc_anchor("B", "1.1 Motivation", 1),
+        _toc_anchor("C", "Deep", 2),
+    )
+    count = assembler._build_outline_from_toc(
+        writer, anchors, {"A": 0, "B": 1, "C": 2}
+    )
+    assert count == 3
+    parents = [call[2] for call in writer.calls]
+    items = [call[3] for call in writer.calls]
+    assert parents[1] is items[0]
+    assert parents[2] is items[1]
+
+
 def test_stamp_page_numbers_skips_cover_and_numbers_the_rest(tmp_path):
     fitz = pytest.importorskip("fitz")
     doc = fitz.open()

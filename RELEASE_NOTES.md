@@ -1,3 +1,36 @@
+# EPUB2PDF v1.2.0
+
+Reading-feel release: technical books whose EPUB navigation is a flat list now
+get a nested bookmark tree, because the numbering in the titles (`1`, `1.1`,
+`1.1.1`) tells us the depth.
+
+## Changed
+
+- **Nest flat numbered navigation.** InDesign and Word exports often ship a flat
+  navigation document: every chapter and section is a sibling, so the PDF
+  bookmarks — even when complete — have no hierarchy. Before building the
+  outline, the assembler now inspects a flat navigation tree: if at least 60% of
+  its titles start with a number chain (`1 Introduction`, `1.1 Motivation`,
+  `1.1.1 Details`, `16.A.1 …`), the levels are derived from that chain and the
+  tree is nested. A title may only deepen one level at a time (so a stray `2.3.4`
+  cannot skip a parent), numbered titles with four-digit prefixes (years) are
+  ignored, and trees that already have more than one level are left untouched.
+- Chapters, parts, appendices and sections keep their order and page targets;
+  only the parent/child relationships change.
+
+## Verification
+
+- New fixture `flatnumbered.epub` (flat navigation, titles `1`/`1.1`/`1.1.1`/`2`/
+  `2.1`, no real headings) + unit tests for the numbering parser, the flat-tree
+  nesting and the untouched hierarchical case; e2e asserts bookmark levels
+  1/2/3/1/2 in order. Full suite **143 passed** (e2e 33).
+- Real book *Advances in Financial Machine Learning* (266 pages): bookmarks stay
+  at 244 but become **two levels** (98 top-level + 146 children; previously 244
+  flat siblings), with `1.1 Motivation` under `Chapter 1` and `16.A.1 …` under
+  the appendix — matching the printed table of contents.
+- No regression for books with a rich Chromium outline: *Systematic Trading*
+  remains 305 bookmarks / 4 levels, the Chinese fixture book 124 / 3 levels.
+
 # EPUB2PDF v1.1.9
 
 Reading-feel release: the body text finally behaves like a printed book when it

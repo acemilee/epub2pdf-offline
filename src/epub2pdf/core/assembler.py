@@ -24,6 +24,7 @@ import re
 import shutil
 import time
 import uuid
+from dataclasses import replace
 from pathlib import Path
 from typing import Optional
 
@@ -508,6 +509,60 @@ def _copy_outline(
     return count
 
 
+_CHAPTER_WORD_RE = re.compile(
+    r"^(?:part|chapter|appendix|section|book)\b", re.IGNORECASE
+)
+_NUMBERED_TITLE_RE = re.compile(
+    r"^(\d{1,3})(?:\.([A-Za-z]{1,2}|\d{1,3}))?(?:\.([A-Za-z]{1,2}|\d{1,3}))?"
+    r"(?=$|[\s.:\u2013\u2014\-\u00b7])"
+)
+
+
+def _infer_numbering_level(title: str) -> Optional[int]:
+    """Guess a bookmark depth from a numbered title (``1``, ``1.1``, ``1.1.2``).
+
+    Returns ``None`` when the title does not look numbered.
+    """
+    text = (title or "").strip()
+    if not text or len(text) > 140:
+        return None
+    if _CHAPTER_WORD_RE.match(text):
+        return 0
+    match = _NUMBERED_TITLE_RE.match(text)
+    if not match:
+        return None
+    return len([part for part in match.groups() if part is not None]) - 1
+
+
+def _with_inferred_levels(toc_anchors):
+    """Nest a flat, numbered navigation tree (common for InDesign exports).
+
+    A flat TOC where most entries are numbered (``1``, ``1.1``, ``1.1.1``) can be
+    nested without guessing: the numbering itself carries the depth.  Trees that
+    already have more than one level, or that are mostly unnumbered, are left
+    untouched.
+    """
+    entries = list(toc_anchors or ())
+    if not entries:
+        return entries
+    if len({int(getattr(entry, "level", 0)) for entry in entries}) > 1:
+        return entries
+    inferred = [_infer_numbering_level(str(entry.title or "")) for entry in entries]
+    known = [level for level in inferred if level is not None]
+    if len(known) < max(3, int(len(entries) * 0.6)) or max(known) < 1:
+        return entries
+    nested = []
+    previous = 0
+    for entry, level in zip(entries, inferred):
+        if level is None:
+            nested.append(entry)
+            continue
+        level = min(level, previous + 1)
+        nested.append(replace(entry, level=level))
+        previous = level
+    return nested
+
+
 def _build_outline_from_toc(
     writer: PdfWriter,
     toc_anchors,
@@ -516,12 +571,13 @@ def _build_outline_from_toc(
 ) -> int:
     """Build a nested outline from TOC entries (``outline_source="ncx"``).
 
-    Entry levels come from the EPUB TOC depth; unresolvable entries are
-    skipped rather than guessed.  Returns the number of entries added.
+    Entry levels come from the EPUB TOC depth (flat numbered navigation is
+    nested from the numbering itself); unresolvable entries are skipped rather
+    than guessed.  Returns the number of entries added.
     """
     count = 0
     stack: list[tuple[int, object]] = []
-    for entry in toc_anchors or ():
+    for entry in _with_inferred_levels(toc_anchors):
         raw_page = anchor_page_index.get(entry.anchor_id)
         title = _dedupe_title(str(entry.title or "").strip())
         if raw_page is None or not title:

@@ -1,3 +1,21 @@
+# EPUB2PDF v1.1.3
+
+Bug-fix release for the generated table-of-contents pages.
+
+## Fixed
+
+- **Dot leaders no longer run underneath the title text.** Each TOC row is now a
+  flex layout (title -> dot leader -> page number), so the leader fills only the
+  gap between the title and the page number. This removes the "underline" look
+  on TOC pages for both CJK and Latin books.
+- Long titles keep the single-line ellipsis behaviour; the page-number column
+  and the clickable row rectangles are unchanged.
+
+## Compatibility
+
+- No CLI/GUI option changes. Page geometry, bookmarks, page numbers and link
+  targets are identical to v1.1.2.
+
 # EPUB2PDF v1.1.2
 
 Reading-experience release. The PDF now adopts the book's own trim size instead

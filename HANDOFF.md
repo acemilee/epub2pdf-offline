@@ -7,8 +7,8 @@
 
 | 项 | 值 |
 | --- | --- |
-| 当前版本 | **v1.1.2**（2026-10-20，功能：auto 开本 + 排版度量缩放 + GUI 手动开始 + 容错读 EPUB） |
-| 代码基线 | 发布提交 **`8d86e0d`**（tag `v1.1.2`）；上一版 `v1.1.1` = `512806f`，`v1.1.0` = `0b04e48`，`v1.0.1` = `6602927` |
+| 当前版本 | **v1.1.3**（2026-10-20，bugfix：目录页引导线不再压字；功能基线 v1.1.2 = auto 开本 + 排版度量缩放 + GUI 手动开始 + 容错读 EPUB） |
+| 代码基线 | 发布提交 **tag `v1.1.3`**（hash 见 §9）；上一版 `v1.1.2` = `8d86e0d`，`v1.1.1` = `512806f`，`v1.1.0` = `0b04e48` |
 | 运行环境 | Windows 10/11 + Microsoft Edge（本机 **155.0.4283.62**） |
 | 开发解释器 | `F:\python313\python.exe`（3.13.9，依赖齐全）；**仓库内没有可用的 `.venv`** |
 | 当前计划 | [docs/plans/v1.1.2.md](docs/plans/v1.1.2.md)（v0.2，**已执行完成**）；上一版 [docs/plans/v1.1.1.md](docs/plans/v1.1.1.md)（v0.2，已完成） |
@@ -19,7 +19,7 @@
 - CLI：`python -m epub2pdf --cli`、`run.py`；新增 `--page-size {auto,A4,Letter,B5,6x9,7x10}`、`--page-height-pt`、`--font-scale {auto,compact,normal,loose}`。
 - **默认 auto 开本**：页面比例取封面图比例（误差实测 ≤ 0.09%），页高默认 9.25in（666pt），正文字号 = clamp(正文宽/40, 9, 13)pt，行距中文 1.55 / 西文 1.40，页边距按页宽比例（左右 11.5%、上 8%、下 9%）；封面满版 `object-fit:cover`。比例超出 0.58–0.86 或无封面 → A4 + WARNING。
 - `--page-size A4` 保持 v1.1.1 几何（595.28×841.89pt、18/16/20/16mm、11pt、1.5 行距、封面 contain），供对照回归。
-- **生成目录页**：封面后插入带点线和最终页码的目录页，每行可点击；行高/字号/缩进/边距随开本缩放。
+- **生成目录页**：封面后插入带点线和最终页码的目录页，每行可点击；行高/字号/缩进/边距随开本缩放。**v1.1.3 起点线只出现在标题文字与页码之间**（flex 布局），不再从列首贯穿、压住标题。
 - **PDF 书签**：默认 CDP `generateDocumentOutline` 多级书签；`--outline-source ncx` 为备选（层级较浅）。
 - 字体：全书 GID 并集子集化嵌入系统字体；支持 EPUB 内嵌 webfont 与 PostScript 字体名。
 - 封面：magic 嗅探 PNG/JPEG/GIF/WebP/BMP/SVG/AVIF/ICO；auto 满版，A4 等比 contain；TIFF 跳过并告警。
@@ -122,6 +122,12 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 - 原始 JS EPUB：v1.1.2 修复前 ebooklib 直接失败，v1.1.2 **转换成功**（354 页，目录 277 行，书签 392 条/4 层）。
 - 打包：`dist\EpubToPdf\EpubToPdf.exe` **12,767,225 B**（12:41 构建，onedir）；`--cli` 转 Systematic 默认 auto → 277 页 / 9.9s / 471.3×666pt；转 `basic.epub --page-size A4` → 57,305 B；GUI 启动日志 `shown winId=1 visible=True`。
 
+**v1.1.3（目录引导线修复）**
+
+- 单测 `test_leader_is_a_flexible_gap_starting_after_the_title` + e2e `test_dot_leaders_do_not_run_under_titles`（basic.epub：dot 矩形与任意文字行 bbox 无水平/垂直重叠）；全量 **112 passed**（e2e 22）。
+- 真实书复测：测试驱动开发（中文，474×666pt、283 页）与 Systematic Trading（470.9×666pt、277 页）目测点线均从标题后开始。
+- 打包：`dist\EpubToPdf\EpubToPdf.exe` **12,767,136 B**（12:57 重建）；exe `--cli` 转中文书 → 283 页 / 25.0s / 点线重叠 0；转 `basic.epub --page-size A4` → 6 页 / 56,854 B / 元数据 `epub2pdf/1.1.3`；GUI 启动日志 `shown winId=1 visible=True`。
+
 **v1.1.1（@page 修复，保留作对照）**
 
 - `Systematic Trading`：修复前 204 页、197 个正文页中 196 页贴边（最小 -0.66/-3.18pt）；修复后 241 页、坏页 0（minL 44.34 / minR 42.58）。
@@ -165,4 +171,5 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 | 2026-10-19 | v1.0.1 | 多级书签（CDP outline）、目录页下划线消除、字体并集嵌入、EPUB 内嵌字体、封面 contain、取消/超时/调试、打包与提交 `6602927` |
 | 2026-10-20 | v1.1.0 | commit `0b04e48` / tag `v1.1.0`：生成目录页 + 可点击行、NCX 备选书签、封面 magic 嗅探、嵌套导航解析修复、GUI 打开输出目录、PyMuPDF 快路径 |
 | 2026-10-20 | v1.1.1 | tag `v1.1.1`（`512806f`）：清洗 EPUB `@page` + 兜底 A4 页边距、spec excludes 清理构建污染 |
-| 2026-10-20 | v1.1.2 | **本轮**：auto 开本（封面比例）+ 排版度量缩放 + GUI 手动开始/选项 + 容错读 EPUB + TOC 扩展名兼容；110 项测试（e2e 21）；计划 v1.1.2 回填 §10；发布提交 `8d86e0d` / tag `v1.1.2` |
+| 2026-10-20 | v1.1.2 | auto 开本（封面比例）+ 排版度量缩放 + GUI 手动开始/选项 + 容错读 EPUB + TOC 扩展名兼容；110 项测试（e2e 21）；计划 v1.1.2 回填 §10；发布提交 `8d86e0d` / tag `v1.1.2` |
+| 2026-10-20 | v1.1.3 | 目录页引导线改为 flex 间隙（不再压字/像下划线）；新增单测 + e2e 重叠检测；112 项测试（e2e 22）；112 项全绿 |

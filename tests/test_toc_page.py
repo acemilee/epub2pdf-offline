@@ -66,6 +66,28 @@ def test_build_toc_html_has_one_row_per_entry_with_page_numbers():
     assert "text-decoration: underline" not in html
 
 
+def test_leader_is_a_flexible_gap_starting_after_the_title():
+    """Leaders must occupy only the space after the title text.
+
+    The old absolute leader started at the column's left edge, so the dotted
+    line ran underneath the title and looked like an underline.
+    """
+    entries = [_anchor("EPBPFTOC_1", "Chapter One", 0)]
+    html = toc_page.build_toc_html(
+        entries,
+        {"EPBPFTOC_1": 5},
+        page_width_pt=A4_WIDTH_PT,
+        page_height_pt=A4_HEIGHT_PT,
+        title="Contents",
+    )
+    assert "display: flex" in html
+    leader = re.search(r'<div class="leader"([^>]*)>', html)
+    assert leader is not None
+    assert "left:" not in leader.group(1)
+    # The title comes before the leader in document order (flex gap layout).
+    assert html.index('class="t"') < html.index('class="leader"') < html.index('class="n"')
+
+
 def test_build_toc_html_paginates_after_rows_per_page():
     entries = [
         _anchor(f"EPBPFTOC_{i}", f"Chapter {i}", 0)

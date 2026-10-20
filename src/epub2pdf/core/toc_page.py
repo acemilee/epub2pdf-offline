@@ -147,6 +147,7 @@ def build_toc_html(
     entry_font = ENTRY_FONT_PT * scale
     title_font = TITLE_FONT_PT * scale
     indent_step = INDENT_PER_LEVEL_PT * scale
+    content_width = max(40.0, page_width_pt - left - right)
     parts: list[str] = []
 
     page_start = (
@@ -166,24 +167,16 @@ def build_toc_html(
                 top_margin_pt=top_margin,
             )
             indent = min(entry.level, MAX_LEVEL_INDENT) * indent_step
-            text_left = left + indent
-            number_left = page_width_pt - right - number_width
-            title_right = number_left - 10.0 * scale
-            title_width = max(20.0, title_right - text_left)
             page_number = page_numbers.get(entry.anchor_id)
             number_text = "" if page_number is None else str(page_number)
-            row_top = top + 4.0 * scale
             parts.append(
-                f"<div class=\"row\">"
-                f"<div class=\"t\" style=\"left:{text_left:.2f}pt;top:{row_top:.2f}pt;"
-                f"width:{title_width:.2f}pt;font-size:{entry_font:.2f}pt;"
-                f"line-height:{row_height - 4.0 * scale:.2f}pt;\">"
+                f"<div class=\"row\" style=\"top:{top:.2f}pt;\">"
+                f"<div class=\"t\" style=\"padding-left:{indent:.2f}pt;"
+                f"font-size:{entry_font:.2f}pt;line-height:{row_height:.2f}pt;\">"
                 f"{_html_escape(entry.title)}</div>"
-                f"<div class=\"leader\" style=\"left:{text_left:.2f}pt;"
-                f"width:{title_width:.2f}pt;top:{row_top + row_height - 6.0 * scale:.2f}pt;\"></div>"
-                f"<div class=\"n\" style=\"left:{number_left:.2f}pt;top:{row_top:.2f}pt;"
-                f"width:{number_width:.2f}pt;font-size:{entry_font:.2f}pt;"
-                f"line-height:{row_height - 4.0 * scale:.2f}pt;\">{number_text}</div>"
+                f"<div class=\"leader\"></div>"
+                f"<div class=\"n\" style=\"font-size:{entry_font:.2f}pt;"
+                f"line-height:{row_height:.2f}pt;\">{number_text}</div>"
                 f"</div>"
             )
         parts.append("</div>")
@@ -203,13 +196,15 @@ body {{ font-family: 'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK S
 .toc-title {{ position: absolute; left: 0; width: {page_width_pt:.2f}pt;
              text-align: center; font-size: {title_font:.2f}pt; font-weight: 700;
              letter-spacing: 0.08em; }}
-.row {{ position: absolute; left: 0; top: 0; width: {page_width_pt:.2f}pt;
-       height: {row_height:.2f}pt; }}
-.t {{ position: absolute; white-space: nowrap; overflow: hidden;
+.row {{ position: absolute; left: {left:.2f}pt; width: {content_width:.2f}pt;
+       height: {row_height:.2f}pt; display: flex; align-items: baseline; }}
+.t {{ flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden;
      text-overflow: ellipsis; text-decoration: none; color: #000; }}
-.leader {{ position: absolute; border-bottom: 0.75pt dotted #8a8a8a; height: 0; }}
-.n {{ position: absolute; text-align: right; font-variant-numeric: tabular-nums;
-     color: #000; }}
+.leader {{ flex: 1 1 auto; min-width: 6pt; height: 0;
+          border-bottom: 0.75pt dotted #8a8a8a;
+          margin: 0 {3.0 * scale:.2f}pt {1.5 * scale:.2f}pt {3.0 * scale:.2f}pt; }}
+.n {{ flex: 0 0 {number_width:.2f}pt; text-align: right;
+     font-variant-numeric: tabular-nums; color: #000; }}
 </style>
 </head>
 <body>

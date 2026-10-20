@@ -250,7 +250,7 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 | 候选 | 说明 | 依据/状态 |
 | --- | --- | --- |
 | 小节书签提取 | 从 `<p class="PartStart">` 等样式化段落识别标题（按 class/字号/加粗启发式），补章内小节书签 | Advances 章内小节仍无书签 |
-| 目录页进阶 | 超长标题两行、可选“只列章”、是否省略导航页条目 | 未立项 |
+| 目录页进阶 | 可选“只列章/两级条目”、是否省略导航页条目（超长标题两行已在 v1.1.8 落地） | 部分完成 |
 | 固定版式 EPUB | 识别 pre-paginated/viewport 与扫描版，按原始页尺寸渲染 | 当前按可重排，需求未确认 |
 | 深色/自定义 CSS | 用户自定义主题 | 未立项 |
 | 封面 TIFF | 引入 Pillow 转码 | 已决定不引入（AGENTS §7） |

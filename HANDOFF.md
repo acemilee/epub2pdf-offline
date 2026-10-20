@@ -223,4 +223,4 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 | 2026-10-20 | v1.1.2 | auto 开本（封面比例）+ 排版度量缩放 + GUI 手动开始/选项 + 容错读 EPUB + TOC 扩展名兼容；110 项测试（e2e 21）；计划 v1.1.2 回填 §10；发布提交 `8d86e0d` / tag `v1.1.2` |
 | 2026-10-20 | v1.1.3 | 目录页引导线改为 flex 间隙（已被 v1.1.4 取代）；112 项测试（e2e 22）；发布提交 `7302e24` / tag `v1.1.3` |
 | 2026-10-20 | v1.1.4 | 目录页彻底无横线；字号归一化（9pt 下限）；绝对 px 容器 clamp；120 项测试（e2e 24）；发布提交 `13eca87` / tag `v1.1.4` |
-| 2026-10-20 | v1.1.5 | 页脚页码（`--no-page-numbers` 可关）；稀疏书签用章节锚点补全；`/Lang` + `DisplayDocTitle`；`<html lang>` 取书语言；127 项测试（e2e 27）；发布提交与 tag 见 `git log`（v1.1.5） |
+| 2026-10-20 | v1.1.5 | 页脚页码（`--no-page-numbers` 可关）；稀疏书签用章节锚点补全；`/Lang` + `DisplayDocTitle`；`<html lang>` 取书语言；127 项测试（e2e 27）；发布提交 `5a85bd3` / tag `v1.1.5` |

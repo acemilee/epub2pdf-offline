@@ -137,3 +137,46 @@ def test_extract_title_uses_first_heading_in_document_order_even_h3():
 def test_extract_title_falls_back_to_html_title_when_no_heading():
     html = "<html><head><title>Chapter Title</title></head><body><p>text</p></body></html>"
     assert parser._extract_title_from_xhtml(html) == "Chapter Title"
+
+
+def _rewrite_basic_with_mismatched_nav(tmp_path: Path) -> Path:
+    """basic.epub with manifest nav=nav01.xhtml but archive file nav01.html."""
+    src = Path(__file__).parent / "fixtures" / "basic.epub"
+    dst = tmp_path / "mismatched-nav.epub"
+    with zipfile.ZipFile(src) as zin, zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zout:
+        for info in zin.infolist():
+            name = info.filename
+            data = zin.read(name)
+            if name == "EPUB/content.opf":
+                data = data.replace(b'href="nav.xhtml"', b'href="nav01.xhtml"')
+            if name == "EPUB/nav.xhtml":
+                name = "EPUB/nav01.html"
+            zout.writestr(name, data)
+    return dst
+
+
+def test_parse_repairs_manifest_nav_that_points_to_missing_extension(tmp_path):
+    # InDesign EPUB 3 exports list toc/nav as .xhtml while the archive stores
+    # .html; ebooklib aborts the whole read. The parser repairs the copy in a
+    # temp file (plan v1.1.2 T1.1).
+    broken = _rewrite_basic_with_mismatched_nav(tmp_path)
+
+    book = parser.parse(str(broken))
+
+    assert book.title == "Basic Fixture Book"
+    assert len(book.chapters) >= 4
+    assert any(ch.is_nav for ch in book.chapters)
+
+
+def test_parse_still_fails_loudly_for_a_genuinely_broken_epub(tmp_path):
+    bad = tmp_path / "bad.epub"
+    with zipfile.ZipFile(bad, "w") as z:
+        z.writestr("mimetype", "application/epub+zip")
+        z.writestr("META-INF/container.xml", "<container/>")
+
+    try:
+        parser.parse(str(bad))
+    except parser.EpubParseError:
+        pass
+    else:  # pragma: no cover - the arch is not a valid EPUB
+        raise AssertionError("expected EpubParseError")

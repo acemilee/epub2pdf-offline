@@ -29,6 +29,7 @@ class TaskRow(QFrame):
     cancel_requested = Signal(object)  # emits self
 
     STATUS_LABEL = {
+        "pending":    "等待开始",
         "queued":     "排队中",
         "parsing":    "解析中",
         "normalizing":"规范化中",
@@ -89,6 +90,11 @@ class TaskRow(QFrame):
         self.setStatus("queued", 0)
 
     # ---------- Public API ----------
+
+    def mark_pending(self) -> None:
+        """A dropped/added file that waits for the start button (v1.1.2)."""
+        self.setStatus("pending", 0)
+        self.cancel_btn.setText("移除")
 
     def setStatus(self, stage: str, percent: int) -> None:
         text = self.STATUS_LABEL.get(stage, stage)

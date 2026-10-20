@@ -542,6 +542,77 @@ def _find_cover(book: "epub.EpubBook", chapters: list[EpubChapter] | None = None
 
 # ---------- Public API ----------
 
+_MISSING_ITEM_RE = re.compile(r"There is no item named '([^']+)' in the archive")
+
+
+def _repair_missing_archive_entry(epub_path: str, missing_name: str) -> Optional[str]:
+    """Create a repaired copy of *epub_path* when a manifest entry is missing.
+
+    Some InDesign-exported EPUB 3 books list ``toc01.xhtml`` in the package
+    manifest while the archive actually stores ``toc01.html``. ebooklib aborts
+    the whole read on that mismatch, so we copy the archive to a temporary
+    file and add the missing path as an alias of the same-stem file. Only
+    unambiguous same-stem matches are repaired; anything else raises the
+    original error (a genuinely broken EPUB should still fail loudly).
+    """
+    import tempfile
+
+    missing = missing_name.replace("\\", "/")
+    missing_stem = posixpath.splitext(posixpath.basename(missing))[0].lower()
+    if not missing_stem:
+        return None
+    try:
+        with zipfile.ZipFile(epub_path) as src:
+            names = src.namelist()
+            candidates = [
+                name for name in names
+                if posixpath.splitext(posixpath.basename(name))[0].lower() == missing_stem
+            ]
+            if len(candidates) != 1:
+                return None
+            alias_bytes = src.read(candidates[0])
+            fd, repaired_path = tempfile.mkstemp(suffix=".epub", prefix="epub2pdf-repair-")
+            os.close(fd)
+            with zipfile.ZipFile(repaired_path, "w", zipfile.ZIP_DEFLATED) as dst:
+                for info in src.infolist():
+                    if info.filename == missing:
+                        continue
+                    dst.writestr(info, src.read(info.filename))
+                dst.writestr(missing, alias_bytes)
+    except (OSError, zipfile.BadZipFile, KeyError):
+        return None
+    return repaired_path
+
+
+def _read_epub_tolerant(epub_path: str) -> "epub.EpubBook":
+    """``epub.read_epub`` with a bounded repair loop for missing manifest files."""
+    repaired_files: list[str] = []
+    current = epub_path
+    try:
+        for _ in range(5):
+            try:
+                return epub.read_epub(current)
+            except Exception as exc:  # ebooklib raises KeyError/FileNotFoundError
+                match = _MISSING_ITEM_RE.search(str(exc))
+                if not match:
+                    raise
+                repaired = _repair_missing_archive_entry(current, match.group(1))
+                if repaired is None:
+                    raise EpubParseError(
+                        "EPUB manifest references a file that is not in the "
+                        f"archive: {match.group(1)!r}"
+                    ) from exc
+                repaired_files.append(repaired)
+                current = repaired
+        raise EpubParseError("EPUB archive is too inconsistent to read")
+    finally:
+        for path in repaired_files:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+
 def parse(epub_path: str) -> EpubBook:
     """Parse an EPUB file into an ``EpubBook`` object."""
     p = Path(epub_path)
@@ -552,7 +623,9 @@ def parse(epub_path: str) -> EpubBook:
         raise EpubEncryptedError("EPUB is DRM-protected; cannot convert")
 
     try:
-        book = epub.read_epub(str(p))
+        book = _read_epub_tolerant(str(p))
+    except EpubParseError:
+        raise
     except Exception as e:
         raise EpubParseError(f"ebooklib failed to read EPUB: {e}") from e
 

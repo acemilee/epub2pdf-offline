@@ -2,7 +2,7 @@
 
 A local Windows app for converting EPUB books to clean, readable PDF files.
 
-![Version](https://img.shields.io/badge/version-1.1.1-blue)
+![Version](https://img.shields.io/badge/version-1.1.2-blue)
 ![License](https://img.shields.io/badge/license-AGPL--3.0--or--later-green)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
@@ -21,6 +21,10 @@ The converter focuses on practical reading quality:
   searchable on other machines.
 - A printable table of contents page is generated for every book, with page
   numbers that match the final PDF and clickable rows.
+- The page size follows the book: the cover's aspect ratio sets the trim size
+  (about 9.25in tall), cover art is printed full-bleed, and the body type,
+  margins and table of contents scale with the page width. Choose A4 in the app
+  or with `--page-size A4` for the previous fixed-A4 output.
 - Covers in PNG, JPEG, GIF, WebP, BMP, SVG and AVIF are placed on a dedicated
   page scaled to fit; TIFF covers are skipped with a warning because Edge cannot
   render them.
@@ -56,9 +60,12 @@ app.
 ### Graphical App
 
 1. Open `EpubToPdf.exe`.
-2. Drag one or more `.epub` files into the window.
-3. Wait for each conversion to finish.
-4. Find the generated `.pdf` file in the selected output folder, or click
+2. Drag one or more `.epub` files into the window. Files are queued with the
+   status **等待开始**; conversion does not start yet.
+3. Choose **页面尺寸** (`自动（按封面比例）` by default, or A4, Letter, B5,
+   6×9, 7×10) and **字号** (自动/紧凑/标准/宽松).
+4. Click **开始转换**.
+5. Find the generated `.pdf` files in the selected output folder, or click
    **打开输出目录** in the toolbar to open it in File Explorer.
 
 By default, the app keeps conversion clean: it outputs the PDF and removes
@@ -92,6 +99,9 @@ CLI options:
 | `--quiet` | Hide normal progress output. |
 | `--timeout` | Total conversion timeout in seconds (0 = no timeout). The CLI prints a per-stage timing summary; a large book (400+ chapters) can take several minutes. |
 | `--outline-source` | Bookmark source: `chromium` (default, follows rendered `h1`–`h6` nesting) or `ncx` (uses the EPUB navigation document; flatter on many books). |
+| `--page-size` | Print page size: `auto` (default: trim size follows the cover ratio, A4 fallback), `A4`, `Letter`, `B5`, `6x9`, `7x10`. |
+| `--page-height-pt` | Page height used by `auto` (default `666` = 9.25in). |
+| `--font-scale` | Body font size relative to the page width: `auto` (40 characters per line), `compact` (-8%), `normal`, `loose` (+10%). |
 | `--debug` | Print a full Python traceback when conversion fails. |
 
 ## Run From Source

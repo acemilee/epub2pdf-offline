@@ -17,9 +17,9 @@ from pathlib import Path
 # Allow running both as `python -m epub2pdf` and as a flat script.
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from epub2pdf.core import parser, normalizer, renderer, assembler
+    from epub2pdf.core import parser, normalizer, renderer, assembler, layout
 else:
-    from .core import parser, normalizer, renderer, assembler
+    from .core import parser, normalizer, renderer, assembler, layout
 
 
 def _human_size(n: int) -> str:
@@ -42,6 +42,9 @@ def convert(
     progress_cb=None,
     cancel_check=None,
     outline_source: str = "chromium",
+    page_size: str = "auto",
+    page_height_pt: float | None = None,
+    font_scale: str = "auto",
 ) -> str:
     """Convert one .epub to .pdf. Returns the output path.
 
@@ -54,6 +57,11 @@ def convert(
             ``ConversionCancelled``.
         timeout: Optional total conversion timeout in seconds. When set,
             the remaining time is passed down to subprocess-based stages.
+        page_size: Print page size. ``auto`` (default) derives the trim size
+            from the cover and falls back to A4; other values are
+            ``A4``, ``Letter``, ``B5``, ``6x9``, ``7x10``.
+        page_height_pt: Page height for auto layouts (default 9.25in = 666pt).
+        font_scale: ``auto`` | ``compact`` | ``normal`` | ``loose``.
     """
     def emit(stage, percent):
         if progress_cb:
@@ -122,6 +130,26 @@ def convert(
         if book.cover_image:
             log(f"       cover  = {book.cover_image}")
 
+        # Layout: default "auto" derives the trim size from the cover (v1.1.2).
+        try:
+            print_layout = layout.layout_for_book(
+                book,
+                page_size=page_size,
+                page_height_pt=page_height_pt,
+                font_scale=font_scale,
+            )
+        except layout.LayoutError as exc:
+            raise RuntimeError(f"invalid layout option: {exc}") from exc
+        if print_layout.warning:
+            log(f"       layout: {print_layout.warning}")
+        log(
+            f"       layout: page={print_layout.page_width_pt:.1f}x"
+            f"{print_layout.page_height_pt:.1f}pt "
+            f"font={print_layout.font_size_pt:.1f}pt "
+            f"line-height={print_layout.line_height:.2f} "
+            f"({print_layout.source})"
+        )
+
         emit("parsing", 25)
         timings["parse"] = time.monotonic() - stage_started
 
@@ -129,7 +157,7 @@ def convert(
         stage_started = time.monotonic()
         # ----- Normalize -----
         log("[2/4] normalizing content ...")
-        normalize_result = normalizer.normalize(book, work_dir)
+        normalize_result = normalizer.normalize(book, work_dir, layout=print_layout)
         html_path = normalize_result.html_path
         html_size = os.path.getsize(html_path)
         log(f"       html = {html_path}  ({_human_size(html_size)})")
@@ -177,6 +205,7 @@ def convert(
             deadline=deadline,
             toc_anchors=normalize_result.toc_anchors,
             outline_source=outline_source,
+            layout=print_layout,
         )
         timings["assemble"] = time.monotonic() - stage_started
         elapsed = time.time() - started
@@ -219,6 +248,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--outline-source", choices=("chromium", "ncx"),
                     default="chromium",
                     help="bookmark source: Chromium headings (default) or EPUB TOC")
+    ap.add_argument("--page-size", default="auto",
+                    help="page size: auto (cover ratio, default), A4, Letter, B5, 6x9, 7x10")
+    ap.add_argument("--page-height-pt", type=float, default=None,
+                    help="page height for --page-size auto (default 9.25in = 666pt)")
+    ap.add_argument("--font-scale", choices=("auto", "compact", "normal", "loose"),
+                    default="auto", help="body font size relative to the page width")
     args = ap.parse_args(argv)
 
     try:
@@ -230,6 +265,9 @@ def main(argv: list[str] | None = None) -> int:
             quiet=args.quiet,
             timeout=args.timeout or None,
             outline_source=args.outline_source,
+            page_size=args.page_size,
+            page_height_pt=args.page_height_pt,
+            font_scale=args.font_scale,
         )
         return 0
     except ConversionCancelled:

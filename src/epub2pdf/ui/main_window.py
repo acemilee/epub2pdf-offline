@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import Qt, QSettings, QThreadPool
 from PySide6.QtGui import QAction, QCloseEvent, QFont
 from PySide6.QtWidgets import (
+    QComboBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -30,6 +32,31 @@ from ..core.orchestrator import ConversionTask, Orchestrator
 
 MAX_CONCURRENT_CONVERSIONS = 1
 
+PAGE_SIZE_CHOICES = (
+    ("自动（按封面比例）", "auto"),
+    ("A4", "A4"),
+    ("Letter", "Letter"),
+    ("B5", "B5"),
+    ("6×9 in", "6x9"),
+    ("7×10 in", "7x10"),
+)
+
+FONT_SCALE_CHOICES = (
+    ("自动", "auto"),
+    ("紧凑", "compact"),
+    ("标准", "normal"),
+    ("宽松", "loose"),
+)
+
+
+@dataclass
+class PendingConversion:
+    """A dropped/added EPUB that waits for the 开始转换 button."""
+
+    epub_path: str
+    output_path: str
+    row: TaskRow
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -44,6 +71,11 @@ class MainWindow(QMainWindow):
 
         # Track active TaskRows by task id
         self._task_rows: dict[str, TaskRow] = {}
+        # Added files wait here until the user presses 开始转换 (v1.1.2)
+        self._pending: list[PendingConversion] = []
+        # Count submitted-but-not-finished conversions (covers the window
+        # between QThreadPool.start() and the thread actually running).
+        self._active_tasks = 0
 
         # ---------------- Central widget ----------------
         central = QWidget()
@@ -80,6 +112,34 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(self.clear_done_btn)
 
         outer.addLayout(toolbar)
+
+        # --- Layout / start row (v1.1.2: explicit start + page format) ---
+        layout_bar = QHBoxLayout()
+        layout_bar.addWidget(QLabel("页面尺寸:"))
+        self.page_size_combo = QComboBox()
+        for label, value in PAGE_SIZE_CHOICES:
+            self.page_size_combo.addItem(label, value)
+        layout_bar.addWidget(self.page_size_combo)
+
+        layout_bar.addSpacing(12)
+        layout_bar.addWidget(QLabel("字号:"))
+        self.font_scale_combo = QComboBox()
+        for label, value in FONT_SCALE_CHOICES:
+            self.font_scale_combo.addItem(label, value)
+        layout_bar.addWidget(self.font_scale_combo)
+
+        layout_bar.addStretch(1)
+        self.pending_label = QLabel("待开始: 0")
+        self.pending_label.setStyleSheet("color: #555;")
+        layout_bar.addWidget(self.pending_label)
+
+        self.start_btn = QPushButton("开始转换")
+        self.start_btn.setDefault(True)
+        self.start_btn.clicked.connect(self._on_start_clicked)
+        layout_bar.addWidget(self.start_btn)
+
+        outer.addLayout(layout_bar)
+        self._restore_layout_choices()
         self._refresh_toolbar_state()
 
         # --- Task list ---
@@ -145,6 +205,34 @@ class MainWindow(QMainWindow):
     def _refresh_toolbar_state(self) -> None:
         """Enable the folder button only when the output directory exists."""
         self.open_out_btn.setEnabled(os.path.isdir(self._current_output_dir()))
+        running = self._active_tasks > 0 or self._thread_pool.activeThreadCount() > 0
+        if hasattr(self, "start_btn"):
+            self.start_btn.setEnabled(bool(self._pending) and not running)
+        if hasattr(self, "page_size_combo"):
+            self.page_size_combo.setEnabled(not running)
+            self.font_scale_combo.setEnabled(not running)
+        if hasattr(self, "pending_label"):
+            self.pending_label.setText(f"待开始: {len(self._pending)}")
+
+    # ---------- Layout choices ----------
+
+    def _restore_layout_choices(self) -> None:
+        page_size = self._settings.value("page_size", "auto")
+        index = self.page_size_combo.findData(page_size)
+        self.page_size_combo.setCurrentIndex(max(0, index))
+        font_scale = self._settings.value("font_scale", "auto")
+        index = self.font_scale_combo.findData(font_scale)
+        self.font_scale_combo.setCurrentIndex(max(0, index))
+
+    def _save_layout_choices(self) -> None:
+        self._settings.setValue("page_size", self.page_size_combo.currentData())
+        self._settings.setValue("font_scale", self.font_scale_combo.currentData())
+
+    def _selected_layout_options(self) -> tuple[str, str]:
+        return (
+            str(self.page_size_combo.currentData() or "auto"),
+            str(self.font_scale_combo.currentData() or "auto"),
+        )
 
     def _on_open_output_dir(self) -> None:
         target = self._current_output_dir()
@@ -166,6 +254,7 @@ class MainWindow(QMainWindow):
     # ---------- Task lifecycle ----------
 
     def _enqueue(self, epub_path: str) -> None:
+        """Add a file to the pending list; conversion starts with 开始转换."""
         epub_path = str(Path(epub_path).resolve())
         if not os.path.isfile(epub_path):
             self.log_panel.append(os.path.basename(epub_path), "文件不存在，跳过")
@@ -179,38 +268,75 @@ class MainWindow(QMainWindow):
 
         # Create TaskRow UI
         row = TaskRow(epub_path)
+        row.mark_pending()
         row.cancel_requested.connect(self._on_cancel_requested)
         # Insert before the final stretch
         self.task_list_layout.insertWidget(
             self.task_list_layout.count() - 1, row
         )
-
-        # Create ConversionTask and wire signals
-        task = ConversionTask(
-            input_path=epub_path,
-            output_path=out_path,
-        )
-        task.signals.progress.connect(
-            lambda stage, pct, r=row: r.setStatus(stage, pct)
-        )
-        task.signals.log.connect(self.log_panel.append)
-        task.signals.finished.connect(self._on_task_finished)
-
-        self._task_rows[task.task_id] = row
-        self._orchestrator.submit(task)
+        self._pending.append(PendingConversion(epub_path, out_path, row))
         self.log_panel.append(
-            os.path.basename(epub_path), f"已加入队列 (共 {self._thread_pool.activeThreadCount()} 活跃线程)"
+            os.path.basename(epub_path), "已加入待开始队列（点击「开始转换」）"
         )
         self._update_status_bar()
 
+    def _on_start_clicked(self) -> None:
+        """Start conversions for every pending file."""
+        if not self._pending:
+            return
+        self._save_layout_choices()
+        page_size, font_scale = self._selected_layout_options()
+
+        started: list[ConversionTask] = []
+        for item in self._pending:
+            task = ConversionTask(
+                input_path=item.epub_path,
+                output_path=item.output_path,
+                page_size=page_size,
+                font_scale=font_scale,
+            )
+            task.signals.progress.connect(
+                lambda stage, pct, r=item.row: r.setStatus(stage, pct)
+            )
+            task.signals.log.connect(self.log_panel.append)
+            task.signals.finished.connect(self._on_task_finished)
+            self._task_rows[task.task_id] = item.row
+            started.append(task)
+            self.log_panel.append(
+                item.row.basename,
+                f"开始转换（页面={page_size}，字号={font_scale}）",
+            )
+
+        self._pending.clear()
+        self._active_tasks += len(started)
+        self.start_btn.setEnabled(False)
+        self.page_size_combo.setEnabled(False)
+        self.font_scale_combo.setEnabled(False)
+        for task in started:
+            self._orchestrator.submit(task)
+        self._update_status_bar()
+
     def _on_cancel_requested(self, row: TaskRow) -> None:
+        for item in list(self._pending):
+            if item.row is row:
+                self._pending.remove(item)
+                self._remove_pending_row(item.row)
+                self.log_panel.append(row.basename, "已从待开始队列移除")
+                self._update_status_bar()
+                return
         for task_id, r in self._task_rows.items():
             if r is row:
                 self._orchestrator.cancel(task_id)
                 self.log_panel.append(row.basename, "已请求取消")
                 break
 
+    def _remove_pending_row(self, row: TaskRow) -> None:
+        self.task_list_layout.removeWidget(row)
+        row.setParent(None)
+        row.deleteLater()
+
     def _on_task_finished(self, task_id: str, success: bool, result) -> None:
+        self._active_tasks = max(0, self._active_tasks - 1)
         row = self._task_rows.get(task_id)
         if row is None:
             return
@@ -233,8 +359,10 @@ class MainWindow(QMainWindow):
     def _update_status_bar(self) -> None:
         active = self._thread_pool.activeThreadCount()
         queued = len(self._task_rows)
+        pending = len(self._pending)
         self.statusBar().showMessage(
-            f"活跃: {active}  任务总数: {queued}  最大并发: {self._thread_pool.maxThreadCount()}"
+            f"待开始: {pending}  活跃: {active}  任务总数: {queued}  "
+            f"最大并发: {self._thread_pool.maxThreadCount()}"
         )
         self._refresh_toolbar_state()
 

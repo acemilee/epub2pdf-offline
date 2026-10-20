@@ -369,8 +369,32 @@ def test_concat_css_strips_epub_at_page_from_stylesheets():
 
 
 def test_post_epub_css_redeclares_print_page_box():
-    # The last stylesheet on the page must restore our A4 margins even if an
-    # EPUB rule slips through the sanitizer (v1.1.1).
+    # The last stylesheet on the page must restore our page box even if an
+    # EPUB rule slips through the sanitizer (v1.1.1; v1.1.2 emits it in pt
+    # for the computed layout).
     assert "@page" in normalizer.POST_EPUB_CSS
-    assert "18mm 16mm 20mm 16mm" in normalizer.POST_EPUB_CSS
+    assert "595.28pt 841.89pt" in normalizer.POST_EPUB_CSS
+    # 18mm top / 16mm right / 20mm bottom / 16mm left, expressed in points.
+    assert "51.02pt 45.35pt 56.69pt 45.35pt" in normalizer.POST_EPUB_CSS
+
+
+def test_resolve_toc_chapter_tolerates_html_vs_xhtml_extension():
+    book = EpubBook(
+        title="Ext mismatch",
+        author="Tester",
+        language="en",
+        chapters=[
+            EpubChapter(id="c1", href="Text/chapter1.xhtml", title="One", content_html="<p>1</p>"),
+            EpubChapter(id="c2", href="Text/chapter2.xhtml", title="Two", content_html="<p>2</p>"),
+        ],
+        images={},
+        fonts={},
+        styles={},
+        cover_image=None,
+        toc=[],
+    )
+
+    assert normalizer._resolve_toc_chapter(book, "Text/chapter1.html").id == "c1"
+    assert normalizer._resolve_toc_chapter(book, "chapter2.html").id == "c2"
+    assert normalizer._resolve_toc_chapter(book, "chapter9.html") is None
 

@@ -42,7 +42,7 @@ def test_convert_passes_total_timeout_to_render_and_assemble(monkeypatch):
 
     monkeypatch.setattr(cli.parser, "parse", lambda _: book)
 
-    def fake_normalize(parsed_book, work_dir):
+    def fake_normalize(parsed_book, work_dir, layout=None):
         path = Path(work_dir) / "book.html"
         path.write_text("<html><body>Hello</body></html>", encoding="utf-8")
         return cli.normalizer.NormalizeResult(html_path=str(path))

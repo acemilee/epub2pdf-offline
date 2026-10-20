@@ -19,6 +19,7 @@ from urllib.parse import unquote
 
 from lxml import html as lxml_html
 
+from .layout import A4_LAYOUT, Layout, layout_for_book
 from .parser import EpubBook, EpubChapter
 
 
@@ -52,22 +53,23 @@ class NormalizeResult:
 
     html_path: str
     toc_anchors: tuple[TocAnchor, ...] = ()
+    layout: Layout | None = None
 
 
 # ---------- Print CSS ----------
 
-PRINT_CSS = """
+_PRINT_CSS_TEMPLATE = """
 /* Page setup */
-@page { size: A4; margin: 18mm 16mm 20mm 16mm; }
+@page { size: __PAGE_SIZE__; margin: __MARGIN_BOX__; }
 @page :first { margin-top: 0; }
 
 /* Base typography */
-html { font-size: 11pt; }
+html { font-size: __FONT_SIZE__; }
 body {
     font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC",
                  "Hiragino Sans", "Noto Sans CJK SC", "Noto Sans",
                  Arial, sans-serif;
-    line-height: 1.5;
+    line-height: __LINE_HEIGHT__;
     color: #1a1a1a;
     text-align: justify;
     hyphens: auto;
@@ -129,14 +131,13 @@ pre {
     text-align: center;
 }
 .cover-page img {
-    max-height: 240mm;
+    max-height: 100%;
     max-width: 100%;
-    object-fit: contain;
+    object-fit: __COVER_FIT__;
 }
 """
 
-
-POST_EPUB_CSS = """
+_POST_EPUB_CSS_TEMPLATE = """
 /* Links are not clickable in the printed PDF. EPUB stylesheets (and the UA
    default for <a>) would otherwise keep the HTML link underline + link color,
    which makes generated TOC/nav pages look like a web page instead of print.
@@ -163,10 +164,44 @@ a, a:link, a:visited, a:hover, a:active {
 
 /* Final page-box guard (v1.1.1). EPUB CSS can carry @page { margin: 0 }
    (InDesign export); the sanitizer removes those rules, but this declaration
-   is emitted last so the A4 print box wins even if one slipped through. */
-@page { size: A4; margin: 18mm 16mm 20mm 16mm; }
+   is emitted last so our computed print box wins even if one slipped
+   through. */
+@page { size: __PAGE_SIZE__; margin: __MARGIN_BOX__; }
 @page :first { margin-top: 0; }
 """
+
+
+def _margin_box(layout: "Layout") -> str:
+    return (
+        f"{layout.margin_top_pt:.2f}pt {layout.margin_right_pt:.2f}pt "
+        f"{layout.margin_bottom_pt:.2f}pt {layout.margin_left_pt:.2f}pt"
+    )
+
+
+def _build_print_css(layout: "Layout") -> str:
+    """Render the print stylesheet for *layout* (v1.1.2)."""
+    return (
+        _PRINT_CSS_TEMPLATE
+        .replace("__PAGE_SIZE__", layout.css_page_size)
+        .replace("__MARGIN_BOX__", _margin_box(layout))
+        .replace("__FONT_SIZE__", f"{layout.font_size_pt:.2f}pt")
+        .replace("__LINE_HEIGHT__", f"{layout.line_height:g}")
+        .replace("__COVER_FIT__", layout.cover_fill)
+    )
+
+
+def _build_post_epub_css(layout: "Layout") -> str:
+    """Render the post-EPUB guard stylesheet for *layout* (v1.1.2)."""
+    return (
+        _POST_EPUB_CSS_TEMPLATE
+        .replace("__PAGE_SIZE__", layout.css_page_size)
+        .replace("__MARGIN_BOX__", _margin_box(layout))
+    )
+
+
+#: Legacy A4 stylesheets (kept for backwards-compatible imports).
+PRINT_CSS = _build_print_css(A4_LAYOUT)
+POST_EPUB_CSS = _build_post_epub_css(A4_LAYOUT)
 
 
 # ---------- Helpers ----------
@@ -375,7 +410,13 @@ def _normalize_href_path(href: str) -> str:
 
 
 def _resolve_toc_chapter(book: EpubBook, href: str) -> EpubChapter | None:
-    """Map a TOC href to a chapter, tolerating path prefix differences."""
+    """Map a TOC href to a chapter, tolerating path prefix differences.
+
+    Some EPUB 3 nav documents are generated with ``href="chapter1.html"``
+    while the actual chapter file is ``chapter1.xhtml`` (InDesign exports do
+    this). Full-path matching fails, so fall back to an extension-insensitive
+    stem match, but only when it is unambiguous.
+    """
     norm = _normalize_href_path(href)
     if not norm:
         return None
@@ -387,7 +428,19 @@ def _resolve_toc_chapter(book: EpubBook, href: str) -> EpubChapter | None:
         ch for ch in book.chapters
         if posixpath.basename(_normalize_href_path(ch.href)) == base
     ]
-    return matches[0] if len(matches) == 1 else None
+    if len(matches) == 1:
+        return matches[0]
+    stem = posixpath.splitext(base)[0].lower()
+    if stem:
+        stem_matches = [
+            ch for ch in book.chapters
+            if posixpath.splitext(
+                posixpath.basename(_normalize_href_path(ch.href))
+            )[0].lower() == stem
+        ]
+        if len(stem_matches) == 1:
+            return stem_matches[0]
+    return None
 
 
 def _build_toc_anchors(
@@ -548,17 +601,23 @@ def _rewrite_relative_paths(
     return _serialize_fragment_children(root)
 
 
-def _html5_wrap(body_html: str, head_extras: str, title: str) -> str:
+def _html5_wrap(
+    body_html: str,
+    head_extras: str,
+    title: str,
+    layout: Layout | None = None,
+) -> str:
     """Wrap arbitrary HTML body fragments in a complete HTML5 document."""
+    layout = layout or A4_LAYOUT
     return (
         "<!DOCTYPE html>\n"
         '<html lang="und">\n'
         "<head>\n"
         '<meta charset="utf-8">\n'
         f"<title>{escape(title)}</title>\n"
-        f"<style>{PRINT_CSS}</style>\n"
+        f"<style>{_build_print_css(layout)}</style>\n"
         f"{head_extras}\n"
-        f"<style>{POST_EPUB_CSS}</style>\n"
+        f"<style>{_build_post_epub_css(layout)}</style>\n"
         "</head>\n"
         "<body>\n"
         f"{body_html}\n"
@@ -757,13 +816,19 @@ def _write_assets(book: EpubBook, work_dir: str) -> dict[str, str]:
 
 # ---------- Public API ----------
 
-def normalize(book: EpubBook, work_dir: str) -> NormalizeResult:
+def normalize(book: EpubBook, work_dir: str, layout: Layout | None = None) -> NormalizeResult:
     """Build a single self-contained HTML file in ``work_dir``.
+
+    ``layout`` carries the print page box and typography (v1.1.2). When
+    omitted, ``layout_for_book(book)`` is used, i.e. the default auto trim
+    size derived from the cover (A4 when the cover is unusable).
 
     Returns a :class:`NormalizeResult` whose ``html_path`` is the absolute
     path to ``index.html`` and whose ``toc_anchors`` map every resolvable
     EPUB TOC entry to an anchor injected into the HTML.
     """
+    if layout is None:
+        layout = layout_for_book(book)
     os.makedirs(work_dir, exist_ok=True)
 
     # 1. Write assets
@@ -866,11 +931,11 @@ def normalize(book: EpubBook, work_dir: str) -> NormalizeResult:
     head_extras = f"<style>\n{inline_css}\n</style>"
 
     # 4. Final document
-    final_html = _html5_wrap(body_html, head_extras, book.title)
+    final_html = _html5_wrap(body_html, head_extras, book.title, layout)
 
     index_path = os.path.join(work_dir, "index.html")
     Path(index_path).write_text(final_html, encoding="utf-8")
-    return NormalizeResult(html_path=index_path, toc_anchors=toc_anchors)
+    return NormalizeResult(html_path=index_path, toc_anchors=toc_anchors, layout=layout)
 
 
 def _extract_body_inner(html_text: str) -> str:

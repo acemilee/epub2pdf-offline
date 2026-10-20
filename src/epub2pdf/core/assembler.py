@@ -127,8 +127,13 @@ def _make_cover_pdf(
     work_dir: str,
     page_size: tuple[float, float] = (A4_WIDTH_PT, A4_HEIGHT_PT),
     timeout: int = 60,
+    fill: str = "contain",
 ) -> Optional[str]:
     """Render the cover image into a one-page PDF using msedge headless.
+
+    ``fill="contain"`` letterboxes the cover (A4 compatibility mode);
+    ``fill="cover"`` fills the whole page like a real book cover, which is what
+    the auto trim-size layout wants.
 
     Returns the path to the generated cover PDF, or None on failure.
     """
@@ -140,17 +145,21 @@ def _make_cover_pdf(
     width_in = width_pt / 72.0
     height_in = height_pt / 72.0
 
-    # A minimal page that shows the whole cover without cropping: the image is
-    # scaled down proportionally when it is larger than A4 and centred on a
-    # white background (``cover`` used to crop the artwork).
+    if fill == "cover":
+        img_css = "display:block;width:100%;height:100%;object-fit:cover;"
+    else:
+        img_css = (
+            "display:block;max-width:100%;max-height:100%;width:auto;height:auto;"
+            "object-fit:contain;"
+        )
+
     html_path = os.path.join(work_dir, "_cover.html")
     Path(html_path).write_text(
         "<!DOCTYPE html><html><head><meta charset='utf-8'>"
         f"<style>@page{{size:{width_in:.6f}in {height_in:.6f}in;margin:0;}}"
         "html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;}"
         "body{display:flex;align-items:center;justify-content:center;background:#fff;}"
-        "img{display:block;max-width:100%;max-height:100%;width:auto;height:auto;"
-        "object-fit:contain;}"
+        f"img{{{img_css}}}"
         "</style></head><body>"
         f"<img src='{file_url}'>"
         "</body></html>",
@@ -433,6 +442,7 @@ def assemble(
     toc_anchors: tuple = (),
     toc_page_title: str | None = None,
     outline_source: str = "chromium",
+    layout=None,
 ) -> int:
     """Post-process the msedge-produced PDF.
 
@@ -445,6 +455,8 @@ def assemble(
             table-of-contents pages.  Empty disables the generated TOC.
         toc_page_title: Heading for the generated TOC page; defaults to a
             localized "目录" / "Contents".
+        layout: ``layout.Layout`` used for the body; drives cover fill mode and
+            TOC scaling.  None keeps the A4/v1.1.1 behaviour.
 
     Returns:
         Page count of the final PDF.
@@ -517,6 +529,7 @@ def assemble(
                 cover_work,
                 page_size=body_page_size,
                 timeout=remaining_timeout(60),
+                fill=(layout.cover_fill if layout is not None else "contain"),
             )
             if cover_pdf and os.path.isfile(cover_pdf):
                 cover_reader = PdfReader(BytesIO(Path(cover_pdf).read_bytes()))
@@ -561,6 +574,11 @@ def assemble(
                 work_dir=toc_work,
                 timeout=remaining_timeout(180),
                 cover_pages=len(cover_pages),
+                scale=(layout.toc_scale if layout is not None else 1.0),
+                left_margin_pt=(layout.margin_left_pt if layout is not None else None),
+                right_margin_pt=(layout.margin_right_pt if layout is not None else None),
+                top_margin_pt=(layout.margin_top_pt if layout is not None else None),
+                bottom_margin_pt=(layout.margin_bottom_pt if layout is not None else None),
             )
             if toc_result.page_count:
                 toc_pdf = os.path.join(toc_work, "toc.pdf")

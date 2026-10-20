@@ -49,15 +49,23 @@ class TocRenderResult:
     links: tuple[TocLink, ...]
 
 
-def entries_per_page(page_height_pt: float) -> int:
+def entries_per_page(
+    page_height_pt: float,
+    *,
+    scale: float = 1.0,
+    top_margin_pt: float | None = None,
+    bottom_margin_pt: float | None = None,
+) -> int:
     """How many rows fit on one TOC page."""
+    top_margin = _mm(TOP_MARGIN_MM) if top_margin_pt is None else top_margin_pt
+    bottom_margin = _mm(BOTTOM_MARGIN_MM) if bottom_margin_pt is None else bottom_margin_pt
     usable = (
         page_height_pt
-        - _mm(TOP_MARGIN_MM)
-        - _mm(BOTTOM_MARGIN_MM)
-        - TITLE_BLOCK_PT
+        - top_margin
+        - bottom_margin
+        - TITLE_BLOCK_PT * scale
     )
-    return max(1, int(usable // ROW_HEIGHT_PT))
+    return max(1, int(usable // (ROW_HEIGHT_PT * scale)))
 
 
 def toc_title_for_language(language: str) -> str:
@@ -69,11 +77,15 @@ def _row_geometry(
     index: int,
     per_page: int,
     page_height_pt: float,
+    *,
+    scale: float = 1.0,
+    top_margin_pt: float | None = None,
 ) -> tuple[int, float]:
     """Return ``(page_index, top_pt_from_page_top)`` for entry ``index``."""
     page_index = index // per_page
     row = index % per_page
-    top = _mm(TOP_MARGIN_MM) + TITLE_BLOCK_PT + row * ROW_HEIGHT_PT
+    top_margin = _mm(TOP_MARGIN_MM) if top_margin_pt is None else top_margin_pt
+    top = top_margin + TITLE_BLOCK_PT * scale + row * ROW_HEIGHT_PT * scale
     return page_index, top
 
 
@@ -81,12 +93,19 @@ def _link_rect(
     top_pt: float,
     page_width_pt: float,
     page_height_pt: float,
+    *,
+    scale: float = 1.0,
+    left_margin_pt: float | None = None,
+    right_margin_pt: float | None = None,
 ) -> tuple[float, float, float, float]:
     """PDF-space rect covering one row, measured from the page top."""
-    x1 = _mm(LEFT_MARGIN_MM)
-    x2 = page_width_pt - _mm(RIGHT_MARGIN_MM)
+    left = _mm(LEFT_MARGIN_MM) if left_margin_pt is None else left_margin_pt
+    right = _mm(RIGHT_MARGIN_MM) if right_margin_pt is None else right_margin_pt
+    row_height = ROW_HEIGHT_PT * scale
+    x1 = left
+    x2 = page_width_pt - right
     y_top = page_height_pt - top_pt - 2.0
-    y_bottom = page_height_pt - top_pt - ROW_HEIGHT_PT + 2.0
+    y_bottom = page_height_pt - top_pt - row_height + 2.0
     return (x1, y_bottom, x2, y_top)
 
 
@@ -106,41 +125,65 @@ def build_toc_html(
     page_width_pt: float,
     page_height_pt: float,
     title: str,
+    scale: float = 1.0,
+    left_margin_pt: float | None = None,
+    right_margin_pt: float | None = None,
+    top_margin_pt: float | None = None,
+    bottom_margin_pt: float | None = None,
 ) -> str:
     """Build the absolute-positioned TOC HTML (one ``.page`` per sheet)."""
-    per_page = entries_per_page(page_height_pt)
+    per_page = entries_per_page(
+        page_height_pt,
+        scale=scale,
+        top_margin_pt=top_margin_pt,
+        bottom_margin_pt=bottom_margin_pt,
+    )
     page_count = max(1, (len(entries) + per_page - 1) // per_page)
-    left = _mm(LEFT_MARGIN_MM)
-    right = page_width_pt - _mm(RIGHT_MARGIN_MM)
-    number_width = PAGE_NUMBER_WIDTH_PT
+    left = _mm(LEFT_MARGIN_MM) if left_margin_pt is None else left_margin_pt
+    right = _mm(RIGHT_MARGIN_MM) if right_margin_pt is None else right_margin_pt
+    top_margin = _mm(TOP_MARGIN_MM) if top_margin_pt is None else top_margin_pt
+    row_height = ROW_HEIGHT_PT * scale
+    number_width = PAGE_NUMBER_WIDTH_PT * scale
+    entry_font = ENTRY_FONT_PT * scale
+    title_font = TITLE_FONT_PT * scale
+    indent_step = INDENT_PER_LEVEL_PT * scale
     parts: list[str] = []
 
     page_start = (
         f"<div class=\"page\">"
-        f"<div class=\"toc-title\" style=\"top:{_mm(TOP_MARGIN_MM):.2f}pt;\">"
+        f"<div class=\"toc-title\" style=\"top:{top_margin:.2f}pt;\">"
         f"{_html_escape(title)}</div>"
     )
     for page_index in range(page_count):
         parts.append(page_start)
         for index in range(page_index * per_page, min((page_index + 1) * per_page, len(entries))):
             entry = entries[index]
-            _, top = _row_geometry(index, per_page, page_height_pt)
-            indent = min(entry.level, MAX_LEVEL_INDENT) * INDENT_PER_LEVEL_PT
+            _, top = _row_geometry(
+                index,
+                per_page,
+                page_height_pt,
+                scale=scale,
+                top_margin_pt=top_margin,
+            )
+            indent = min(entry.level, MAX_LEVEL_INDENT) * indent_step
             text_left = left + indent
-            number_left = right - number_width
-            title_right = number_left - 10.0
+            number_left = page_width_pt - right - number_width
+            title_right = number_left - 10.0 * scale
             title_width = max(20.0, title_right - text_left)
             page_number = page_numbers.get(entry.anchor_id)
             number_text = "" if page_number is None else str(page_number)
-            row_top = top + 4.0
+            row_top = top + 4.0 * scale
             parts.append(
                 f"<div class=\"row\">"
                 f"<div class=\"t\" style=\"left:{text_left:.2f}pt;top:{row_top:.2f}pt;"
-                f"width:{title_width:.2f}pt;\">{_html_escape(entry.title)}</div>"
+                f"width:{title_width:.2f}pt;font-size:{entry_font:.2f}pt;"
+                f"line-height:{row_height - 4.0 * scale:.2f}pt;\">"
+                f"{_html_escape(entry.title)}</div>"
                 f"<div class=\"leader\" style=\"left:{text_left:.2f}pt;"
-                f"width:{title_width:.2f}pt;top:{row_top + ROW_HEIGHT_PT - 6.0:.2f}pt;\"></div>"
+                f"width:{title_width:.2f}pt;top:{row_top + row_height - 6.0 * scale:.2f}pt;\"></div>"
                 f"<div class=\"n\" style=\"left:{number_left:.2f}pt;top:{row_top:.2f}pt;"
-                f"width:{number_width:.2f}pt;\">{number_text}</div>"
+                f"width:{number_width:.2f}pt;font-size:{entry_font:.2f}pt;"
+                f"line-height:{row_height - 4.0 * scale:.2f}pt;\">{number_text}</div>"
                 f"</div>"
             )
         parts.append("</div>")
@@ -158,16 +201,15 @@ body {{ font-family: 'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK S
         overflow: hidden; page-break-after: always; }}
 .page:last-child {{ page-break-after: auto; }}
 .toc-title {{ position: absolute; left: 0; width: {page_width_pt:.2f}pt;
-             text-align: center; font-size: {TITLE_FONT_PT:.1f}pt; font-weight: 700;
+             text-align: center; font-size: {title_font:.2f}pt; font-weight: 700;
              letter-spacing: 0.08em; }}
 .row {{ position: absolute; left: 0; top: 0; width: {page_width_pt:.2f}pt;
-       height: {ROW_HEIGHT_PT:.2f}pt; }}
-.t {{ position: absolute; font-size: {ENTRY_FONT_PT:.2f}pt; line-height: {ROW_HEIGHT_PT - 4:.2f}pt;
-     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-     text-decoration: none; color: #000; }}
+       height: {row_height:.2f}pt; }}
+.t {{ position: absolute; white-space: nowrap; overflow: hidden;
+     text-overflow: ellipsis; text-decoration: none; color: #000; }}
 .leader {{ position: absolute; border-bottom: 0.75pt dotted #8a8a8a; height: 0; }}
-.n {{ position: absolute; font-size: {ENTRY_FONT_PT:.2f}pt; line-height: {ROW_HEIGHT_PT - 4:.2f}pt;
-     text-align: right; font-variant-numeric: tabular-nums; color: #000; }}
+.n {{ position: absolute; text-align: right; font-variant-numeric: tabular-nums;
+     color: #000; }}
 </style>
 </head>
 <body>
@@ -188,6 +230,11 @@ def render_toc_pdf(
     work_dir: str,
     timeout: int = 120,
     cover_pages: int = 0,
+    scale: float = 1.0,
+    left_margin_pt: float | None = None,
+    right_margin_pt: float | None = None,
+    top_margin_pt: float | None = None,
+    bottom_margin_pt: float | None = None,
 ) -> TocRenderResult:
     """Render the TOC pages and compute page numbers + link geometry.
 
@@ -201,7 +248,12 @@ def render_toc_pdf(
     if not entries:
         return TocRenderResult(0, {}, ())
 
-    per_page = entries_per_page(page_height_pt)
+    per_page = entries_per_page(
+        page_height_pt,
+        scale=scale,
+        top_margin_pt=top_margin_pt,
+        bottom_margin_pt=bottom_margin_pt,
+    )
     page_count = max(1, (len(entries) + per_page - 1) // per_page)
     html_path = os.path.join(work_dir, "toc.html")
     pdf_path = os.path.join(work_dir, "toc.pdf")
@@ -221,6 +273,11 @@ def render_toc_pdf(
             page_width_pt=page_width_pt,
             page_height_pt=page_height_pt,
             title=title,
+            scale=scale,
+            left_margin_pt=left_margin_pt,
+            right_margin_pt=right_margin_pt,
+            top_margin_pt=top_margin_pt,
+            bottom_margin_pt=bottom_margin_pt,
         )
         with open(html_path, "w", encoding="utf-8") as f:
             f.write(last_html)
@@ -237,11 +294,24 @@ def render_toc_pdf(
         raw_page = anchor_page_index.get(entry.anchor_id)
         if raw_page is None:
             continue
-        toc_page_index, top = _row_geometry(index, per_page, page_height_pt)
+        toc_page_index, top = _row_geometry(
+            index,
+            per_page,
+            page_height_pt,
+            scale=scale,
+            top_margin_pt=top_margin_pt,
+        )
         links.append(
             TocLink(
                 toc_page_index=toc_page_index,
-                rect=_link_rect(top, page_width_pt, page_height_pt),
+                rect=_link_rect(
+                    top,
+                    page_width_pt,
+                    page_height_pt,
+                    scale=scale,
+                    left_margin_pt=left_margin_pt,
+                    right_margin_pt=right_margin_pt,
+                ),
                 # Body pages come after cover + TOC pages.
                 target_page_index=raw_page + cover_pages + page_count,
             )

@@ -33,12 +33,18 @@ class ConversionTask(QRunnable):
         output_path: str,
         keep_temp: bool = False,
         with_cover: bool = True,
+        page_size: str = "auto",
+        page_height_pt: float | None = None,
+        font_scale: str = "auto",
     ):
         super().__init__()
         self.input_path = input_path
         self.output_path = output_path
         self.keep_temp = keep_temp
         self.with_cover = with_cover
+        self.page_size = page_size
+        self.page_height_pt = page_height_pt
+        self.font_scale = font_scale
         self.task_id = uuid.uuid4().hex
         self.signals = TaskSignals()
         self._cancel_flag = threading.Event()
@@ -67,6 +73,9 @@ class ConversionTask(QRunnable):
                 with_cover=self.with_cover,
                 progress_cb=on_progress,
                 cancel_check=on_cancel_check,
+                page_size=self.page_size,
+                page_height_pt=self.page_height_pt,
+                font_scale=self.font_scale,
             )
             self.signals.finished.emit(self.task_id, True, out)
         except ConversionCancelled:

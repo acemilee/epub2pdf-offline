@@ -93,16 +93,46 @@ def find_heading_page(doc, heading: str) -> int | None:
 
 
 def text_page_margins(page) -> tuple[float, float, float, float] | None:
-    """Return ``(left, top, right, bottom)`` margins of a page's text blocks."""
-    blocks = page.get_text("blocks")
-    if not blocks:
+    """Return ``(left, top, right, bottom)`` margins of visible text.
+
+    Invisible anchor markers are rendered at 1px and must not count as body
+    text (they sit at the very page edge after a forced page break).
+    """
+    boxes = []
+    for block in page.get_text("dict")["blocks"]:
+        for line in block.get("lines", []):
+            for span in line.get("spans", []):
+                if span.get("size", 0) > 2.0 and span.get("text", "").strip():
+                    boxes.append(span["bbox"])
+    if not boxes:
         return None
-    x0 = min(block[0] for block in blocks)
-    y0 = min(block[1] for block in blocks)
-    x1 = max(block[2] for block in blocks)
-    y1 = max(block[3] for block in blocks)
+    x0 = min(box[0] for box in boxes)
+    y0 = min(box[1] for box in boxes)
+    x1 = max(box[2] for box in boxes)
+    y1 = max(box[3] for box in boxes)
     rect = page.rect
     return (x0 - rect.x0, y0 - rect.y0, rect.x1 - x1, rect.y1 - y1)
+
+
+def body_font_sizes(doc, start: int = 2) -> list[float]:
+    """Return visible span font sizes on body pages (after cover/TOC)."""
+    sizes = []
+    for page in list(doc)[start:]:
+        for block in page.get_text("dict")["blocks"]:
+            for line in block.get("lines", []):
+                for span in line.get("spans", []):
+                    if span.get("size", 0) > 3.0 and span.get("text", "").strip():
+                        sizes.append(float(span["size"]))
+    return sizes
+
+
+def dominant_body_font_size(doc, start: int = 2) -> float:
+    """Most common visible span size on body pages (i.e. the body font size)."""
+    from collections import Counter
+
+    sizes = body_font_sizes(doc, start)
+    assert sizes, "no visible body text found"
+    return Counter(sizes).most_common(1)[0][0]
 
 
 def body_pages(doc, min_chars: int = 40):

@@ -1,3 +1,48 @@
+# EPUB2PDF v1.1.2
+
+Reading-experience release. The PDF now adopts the book's own trim size instead
+of always printing on A4, and the GUI gains an explicit start step with page-size
+and font-size choices.
+
+## Breaking change
+
+- **Default page size is no longer A4.** With no options, the page ratio is
+  derived from the cover and the page height defaults to 9.25in; A4 is only a
+  fallback for books without a usable cover. Choose `--page-size A4` (CLI) or
+  **页面尺寸: A4** (GUI) to reproduce the v1.1.1 geometry exactly.
+
+## Highlights
+
+- **Trim size from the cover**: the cover's aspect ratio is read without any new
+  runtime dependency (PNG/JPEG/GIF/WebP/BMP/SVG headers) and used to size the
+  page. Covers are printed full-bleed like a real book; invalid ratios
+  (banners, screenshots outside 0.58–0.86) fall back to A4 with a warning.
+- **Typography follows the page**: body font size targets 40 characters per
+  line (clamped to 9–13 pt), margins are 11.5% of the width, top 8% and bottom
+  9% of the height, and CJK books use 1.55 line-height (Latin 1.40). The
+  generated TOC page and its clickable rows scale with the same metrics.
+- **Explicit page sizes**: `--page-size A4|Letter|B5|6x9|7x10` and
+  `--page-height-pt` (auto mode height, default 666 pt).
+- **Font scale**: `--font-scale auto|compact|normal|loose` and the matching GUI
+  selector (compact −8%, loose +10%).
+- **GUI starts on demand**: dropping files now queues them as 等待开始; choose
+  page size and font size, then press **开始转换**. Options persist between
+  launches and are locked while a conversion is running; pending rows can be
+  removed before starting.
+- **More EPUBs convert**: books whose package manifest points at a missing
+  navigation file (e.g. `toc01.xhtml` while the archive stores `toc01.html`,
+  common in InDesign exports) are repaired on a temporary copy instead of
+  failing, and TOC hrefs are matched extension-insensitively.
+
+## Compatibility
+
+- `--page-size A4` output matches v1.1.1 (595.28 × 841.89 pt, 18/16/20/16 mm
+  margins, 11 pt body).
+- Auto-mode page counts differ from v1.1.1 because the page is narrower; this is
+  expected. Text size is still ultimately constrained by the EPUB's own CSS.
+- The EPUB format does not store an absolute trim size, so 9.25in height is a
+  deliberate default; adjust it with `--page-height-pt`.
+
 # EPUB2PDF v1.1.1
 
 Bug-fix release. EPUB stylesheets that declare their own page box no longer

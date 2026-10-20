@@ -30,7 +30,7 @@ def test_renderer_cancellation_becomes_conversion_cancelled(monkeypatch, tmp_pat
     )
     monkeypatch.setattr(cli.parser, "parse", lambda _: book)
 
-    def fake_normalize(_book, work_dir):
+    def fake_normalize(_book, work_dir, layout=None):
         path = Path(work_dir) / "book.html"
         path.write_text("<html><body>Hello</body></html>", encoding="utf-8")
         return cli.normalizer.NormalizeResult(html_path=str(path))

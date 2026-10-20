@@ -1,7 +1,6 @@
 """End-to-end tests for the generated table-of-contents pages."""
 from __future__ import annotations
 
-import pymupdf
 import pytest
 
 from conftest import (  # type: ignore[import-not-found]
@@ -45,35 +44,20 @@ def test_generated_toc_page_has_page_numbers_matching_outline(tmp_path):
         assert find_heading_page(doc, "Chapter One: Alpha") == alpha[2] - 1
 
 
-def _text_line_rects(page):
-    rects = []
-    for block in page.get_text("dict")["blocks"]:
-        if block.get("type") != 0:
-            continue
-        for line in block["lines"]:
-            rects.append(pymupdf.Rect(line["bbox"]))
-    return rects
-
-
-def test_dot_leaders_do_not_run_under_titles(tmp_path):
-    """Dot leaders must start after the title text, not beneath it."""
+def test_generated_toc_page_draws_no_leader_lines(tmp_path):
+    """The generated TOC must not draw dotted/dashed rules under the entries."""
     pdf = convert_epub("basic.epub", tmp_path)
 
     with pdf_doc(pdf) as doc:
         toc_index = _generated_toc_page(doc)
         assert toc_index is not None
         page = doc[toc_index]
-        dots = [d["rect"] for d in page.get_drawings() if d["rect"].height <= 1.0]
-        assert dots, "TOC page should draw dot leaders"
-        offenders = []
-        for dot in dots:
-            for line in _text_line_rects(page):
-                vertically_inside = dot.y0 >= line.y0 - 0.6 and dot.y1 <= line.y1 + 0.6
-                horizontally_inside = dot.x0 < line.x1 - 0.6 and dot.x1 > line.x0 + 0.6
-                if vertically_inside and horizontally_inside:
-                    offenders.append((dot, line))
-                    break
-        assert not offenders, f"{len(offenders)} leader dots overlap title text"
+        thin_lines = [
+            d["rect"]
+            for d in page.get_drawings()
+            if d["rect"].height <= 1.0 and d["rect"].width >= 3.0
+        ]
+        assert not thin_lines, f"{len(thin_lines)} leader-like lines found on TOC page"
 
 
 def test_generated_toc_rows_are_clickable(tmp_path):

@@ -2,7 +2,7 @@
 
 A local Windows app for converting EPUB books to clean, readable PDF files.
 
-![Version](https://img.shields.io/badge/version-1.1.3-blue)
+![Version](https://img.shields.io/badge/version-1.1.4-blue)
 ![License](https://img.shields.io/badge/license-AGPL--3.0--or--later-green)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
@@ -20,11 +20,16 @@ The converter focuses on practical reading quality:
   used by the browser are embedded into the PDF, so text stays selectable and
   searchable on other machines.
 - A printable table of contents page is generated for every book, with page
-  numbers that match the final PDF and clickable rows.
+  numbers that match the final PDF and clickable rows. The generated page draws
+  no rules or dot leaders at all, so entries read like a native book TOC.
 - The page size follows the book: the cover's aspect ratio sets the trim size
   (about 9.25in tall), cover art is printed full-bleed, and the body type,
   margins and table of contents scale with the page width. Choose A4 in the app
   or with `--page-size A4` for the previous fixed-A4 output.
+- Undersized EPUB fonts are normalized: any CSS `font-size` that resolves below
+  9pt is lifted to 9pt, so nested `0.7em`-style exports stay readable.
+- Fixed-pixel EPUB layouts are clamped: `width: Npx` containers wider than the
+  printable column become `min(Npx, 100%)` instead of running past the margin.
 - Covers in PNG, JPEG, GIF, WebP, BMP, SVG and AVIF are placed on a dedicated
   page scaled to fit; TIFF covers are skipped with a warning because Edge cannot
   render them.
@@ -194,3 +199,4 @@ later. See [LICENSE](LICENSE) for the full license text.
 
 Third-party dependency notices are listed in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+

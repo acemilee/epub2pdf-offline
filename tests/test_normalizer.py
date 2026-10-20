@@ -398,3 +398,62 @@ def test_resolve_toc_chapter_tolerates_html_vs_xhtml_extension():
     assert normalizer._resolve_toc_chapter(book, "chapter2.html").id == "c2"
     assert normalizer._resolve_toc_chapter(book, "chapter9.html") is None
 
+
+
+def test_length_to_pt_converts_css_units():
+    to_pt = normalizer._length_to_pt
+    assert to_pt("11pt", 11.0) == 11.0
+    assert to_pt("16px", 11.0) == 12.0
+    assert to_pt("0.71em", 11.0) == 7.81
+    assert to_pt("95%", 11.0) == 10.45
+    assert to_pt("inherit", 11.0) is None
+    assert to_pt("calc(1em + 1px)", 11.0) is None
+
+
+def test_normalize_font_sizes_lifts_undersized_declarations_only():
+    css = (
+        "p{font-size:0.71em}"
+        "h2{font-size:1.4em}"
+        ".pt{font-size:12pt}"
+        ".px{font-size:8.5px !important}"
+    )
+    out = normalizer._normalize_font_sizes(css)
+
+    assert "p{font-size:9pt}" in out
+    assert "font-size:8.5px !important" not in out
+    assert "font-size:9pt !important" in out
+    assert "h2{font-size:1.4em}" in out
+    assert ".pt{font-size:12pt}" in out
+
+
+def test_normalize_font_sizes_keeps_keywords_and_functions():
+    css = "p{font-size:inherit}.x{font-size:calc(1em + 1px)}"
+    assert normalizer._normalize_font_sizes(css) == css
+
+
+def test_sanitize_epub_css_lifts_font_sizes_against_layout_root():
+    css = "@page{margin:0} p{font-size:0.7em}"
+    out = normalizer._sanitize_epub_css(css)
+    assert "@page" not in out
+    assert "font-size:9pt" in out
+
+
+def test_clamp_px_widths_only_clamps_columns_wider_than_the_page():
+    clamp = normalizer._clamp_px_widths
+    assert clamp("div{width:100px}", 341.0) == "div{width:100px}"
+    assert "width:min(600px, 100%)" in clamp("div{width:600px}", 341.0)
+    assert "min-width:0" in clamp("td{min-width:600px}", 341.0)
+    assert "max-width:min(500px, 100%)" in clamp("p{max-width:500px}", 341.0)
+
+
+def test_rewrite_relative_paths_clamps_inline_px_widths():
+    from epub2pdf.core import layout as layout_module
+
+    narrow = layout_module.compute_layout(cover_size=(300, 450))
+    html = '<div style="width:600px"><p>text</p></div>'
+    out = normalizer._rewrite_relative_paths(
+        html, "", "assets", {}, {}, narrow
+    )
+
+    assert "width:min(600px, 100%)" in out
+    assert 'width="600px"' not in out

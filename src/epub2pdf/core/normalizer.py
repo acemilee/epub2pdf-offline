@@ -527,6 +527,7 @@ def _rewrite_relative_paths(
     assets_dir_name: str,
     image_map: dict[str, str] | None = None,
     font_map: dict[str, str] | None = None,
+    layout: Layout | None = None,
 ) -> str:
     """Rewrite relative URLs in the chapter HTML so they resolve to the
     assets directory we will write next to the index.html.
@@ -595,7 +596,18 @@ def _rewrite_relative_paths(
     for style in [el for el in root.iter() if _local_name(el) == "style"]:
         if style.text:
             style.text = _sanitize_epub_css(
-                _rewrite_css_urls(style.text, image_map, font_map or {})
+                _rewrite_css_urls(style.text, image_map, font_map or {}),
+                layout,
+            )
+
+    # Inline ``style="width: 500px"`` attributes need the same clamp as the
+    # stylesheets so fixed-width boxes cannot run past the print column.
+    effective_layout = layout or A4_LAYOUT
+    for element in root.iter():
+        inline_style = element.get("style")
+        if inline_style:
+            element.set(
+                "style", _clamp_px_widths(inline_style, effective_layout.text_width_pt)
             )
 
     return _serialize_fragment_children(root)
@@ -627,6 +639,75 @@ def _html5_wrap(
 
 
 _CHARSET_RE = re.compile(r"@charset\s+[^;]*;\s*", re.IGNORECASE)
+
+# Smallest body font size the converter is willing to print.  EPUB CSS
+# produced by InDesign/Word exports frequently nests ``0.7em``-style rules
+# several levels deep, which multiplies down to ~6-8pt on an A4 page.  Any
+# declaration that resolves below this floor is rewritten to an absolute
+# size so it stays legible and independent of parent font sizes.
+MIN_BODY_FONT_PT = 9.0
+
+_FONT_SIZE_DECL_RE = re.compile(
+    r"(font-size\s*:\s*)([^;{}!]+?)(\s*!important\s*)?(?=[;}])",
+    re.IGNORECASE,
+)
+_LENGTH_RE = re.compile(
+    r"^([+-]?(?:\d+\.?\d*|\.\d+))\s*(px|pt|pc|in|cm|mm|em|rem|%)?$",
+    re.IGNORECASE,
+)
+_PX_WIDTH_DECL_RE = re.compile(
+    r"(?<![\w-])(min-width|max-width|width)\s*:\s*(\d+(?:\.\d+)?)px",
+    re.IGNORECASE,
+)
+
+
+def _length_to_pt(value: str, base_pt: float) -> float | None:
+    """Best-effort conversion of a CSS length into points.
+
+    ``em``/``rem``/``%`` are resolved against *base_pt* (the root font size),
+    which is exact for ``rem`` and a lower bound for nested ``em`` chains.
+    Unknown values (keywords, ``calc()``, ``clamp()`` ...) return ``None``.
+    """
+    match = _LENGTH_RE.match(value.strip())
+    if not match:
+        return None
+    number = float(match.group(1))
+    unit = (match.group(2) or "").lower()
+    if unit == "px":
+        return number * 0.75
+    if unit == "pt":
+        return number
+    if unit == "pc":
+        return number * 12.0
+    if unit == "in":
+        return number * 72.0
+    if unit == "cm":
+        return number * 72.0 / 2.54
+    if unit == "mm":
+        return number * 72.0 / 25.4
+    if unit == "%":
+        return number / 100.0 * base_pt
+    # em / rem / unitless
+    return number * base_pt
+
+
+def _normalize_font_sizes(css: str, layout: Layout | None = None) -> str:
+    """Lift undersized ``font-size`` declarations to :data:`MIN_BODY_FONT_PT`.
+
+    Values that already resolve to the floor or above are left untouched so
+    that deliberate display type keeps its relative scale.
+    """
+    base_pt = (layout or A4_LAYOUT).font_size_pt
+
+    def replace(match: re.Match[str]) -> str:
+        value = match.group(2).strip()
+        resolved = _length_to_pt(value, base_pt)
+        if resolved is None or resolved >= MIN_BODY_FONT_PT:
+            return match.group(0)
+        important = match.group(3) or ""
+        return f"{match.group(1)}{MIN_BODY_FONT_PT:g}pt{important}"
+
+    return _FONT_SIZE_DECL_RE.sub(replace, css)
 
 
 def _strip_at_page_rules(css: str) -> str:
@@ -693,12 +774,37 @@ def _strip_at_page_rules(css: str) -> str:
     return "".join(out)
 
 
-def _sanitize_epub_css(css: str) -> str:
-    """Strip rules from third-party EPUB CSS that conflict with print layout."""
-    return _strip_at_page_rules(css)
+def _clamp_px_widths(css: str, text_width_pt: float) -> str:
+    """Clamp fixed pixel widths that are wider than the printable text column.
+
+    EPUBs exported from word processors often size containers in absolute
+    pixels (``width: 500px``).  On a narrow auto-sized page that column can
+    be wider than the paper, which pushes text past the margin or clips it.
+    Widths that already fit are left alone; oversized ones become
+    ``min(<px>, 100%)`` so Chromium shrinks them to the column.
+    """
+    def replace(match: re.Match[str]) -> str:
+        prop = match.group(1)
+        pixels = float(match.group(2))
+        width_pt = pixels * 0.75
+        if width_pt <= text_width_pt:
+            return match.group(0)
+        if prop.lower() == "min-width":
+            return f"{prop}:0"
+        return f"{prop}:min({pixels:g}px, 100%)"
+
+    return _PX_WIDTH_DECL_RE.sub(replace, css)
 
 
-def _concat_css(styles: dict[str, bytes]) -> str:
+def _sanitize_epub_css(css: str, layout: Layout | None = None) -> str:
+    """Strip/adjust third-party EPUB CSS that conflicts with print layout."""
+    layout = layout or A4_LAYOUT
+    css = _normalize_font_sizes(_strip_at_page_rules(css), layout)
+    return _clamp_px_widths(css, layout.text_width_pt)
+
+
+
+def _concat_css(styles: dict[str, bytes], layout: Layout | None = None) -> str:
     """Concatenate all CSS files, dropping in-fragment ``@charset`` rules.
 
     ``@charset`` is only legal as the very first bytes of a stylesheet.
@@ -714,7 +820,7 @@ def _concat_css(styles: dict[str, bytes]) -> str:
         except Exception:
             continue
         css_text = _CHARSET_RE.sub("", css_text)
-        css_text = _sanitize_epub_css(css_text)
+        css_text = _sanitize_epub_css(css_text, layout)
         parts.append(f"/* === {fname} === */\n{css_text}\n")
     return "\n".join(parts)
 
@@ -848,7 +954,7 @@ def normalize(book: EpubBook, work_dir: str, layout: Layout | None = None) -> No
         # Extract just the body / inner content if lxml could parse it
         body_inner = _extract_body_inner(ch.content_html)
         body_inner = _rewrite_relative_paths(
-            body_inner, ch.href, "assets", image_map, font_map
+            body_inner, ch.href, "assets", image_map, font_map, layout
         )
         body_inner = _clean_text_artifacts(body_inner)
         chapter_title = _clean_text_artifacts(ch.title)
@@ -927,7 +1033,7 @@ def normalize(book: EpubBook, work_dir: str, layout: Layout | None = None) -> No
         )
 
     # 3. Inline all EPUB CSS (so head_extras covers them)
-    inline_css = _rewrite_css_urls(_concat_css(book.styles), image_map, font_map)
+    inline_css = _rewrite_css_urls(_concat_css(book.styles, layout), image_map, font_map)
     head_extras = f"<style>\n{inline_css}\n</style>"
 
     # 4. Final document

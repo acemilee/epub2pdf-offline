@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "epub2pdf-offline"
-version = "1.1.3"
+version = "1.1.4"
 description = "Offline Windows EPUB to PDF converter using Microsoft Edge headless rendering."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -60,4 +60,5 @@ addopts = "-q -p no:cacheprovider"
 markers = [
     "e2e: end-to-end conversion tests that need Microsoft Edge",
 ]
+
 

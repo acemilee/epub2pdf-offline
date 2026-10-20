@@ -174,7 +174,6 @@ def build_toc_html(
                 f"<div class=\"t\" style=\"padding-left:{indent:.2f}pt;"
                 f"font-size:{entry_font:.2f}pt;line-height:{row_height:.2f}pt;\">"
                 f"{_html_escape(entry.title)}</div>"
-                f"<div class=\"leader\"></div>"
                 f"<div class=\"n\" style=\"font-size:{entry_font:.2f}pt;"
                 f"line-height:{row_height:.2f}pt;\">{number_text}</div>"
                 f"</div>"
@@ -198,11 +197,9 @@ body {{ font-family: 'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK S
              letter-spacing: 0.08em; }}
 .row {{ position: absolute; left: {left:.2f}pt; width: {content_width:.2f}pt;
        height: {row_height:.2f}pt; display: flex; align-items: baseline; }}
-.t {{ flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden;
-     text-overflow: ellipsis; text-decoration: none; color: #000; }}
-.leader {{ flex: 1 1 auto; min-width: 6pt; height: 0;
-          border-bottom: 0.75pt dotted #8a8a8a;
-          margin: 0 {3.0 * scale:.2f}pt {1.5 * scale:.2f}pt {3.0 * scale:.2f}pt; }}
+.t {{ flex: 1 1 auto; min-width: 0; padding-right: {8.0 * scale:.2f}pt;
+     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+     text-decoration: none; color: #000; }}
 .n {{ flex: 0 0 {number_width:.2f}pt; text-align: right;
      font-variant-numeric: tabular-nums; color: #000; }}
 </style>

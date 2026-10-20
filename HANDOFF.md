@@ -7,8 +7,8 @@
 
 | 项 | 值 |
 | --- | --- |
-| 当前版本 | **v1.1.3**（2026-10-20，bugfix：目录页引导线不再压字；功能基线 v1.1.2 = auto 开本 + 排版度量缩放 + GUI 手动开始 + 容错读 EPUB） |
-| 代码基线 | 发布提交 **`7302e24`**（tag `v1.1.3`）；上一版 `v1.1.2` = `8d86e0d`，`v1.1.1` = `512806f`，`v1.1.0` = `0b04e48` |
+| 当前版本 | **v1.1.4**（2026-10-20，阅读质量：目录页彻底无横线 + 字号归一化 + EPUB 绝对 px 适配；功能基线 v1.1.2 = auto 开本 + 排版度量缩放 + GUI 手动开始 + 容错读 EPUB） |
+| 代码基线 | 发布提交见 `git tag v1.1.4`；上一版 `v1.1.3` = `7302e24`，`v1.1.2` = `8d86e0d`，`v1.1.1` = `512806f`，`v1.1.0` = `0b04e48` |
 | 运行环境 | Windows 10/11 + Microsoft Edge（本机 **155.0.4283.62**） |
 | 开发解释器 | `F:\python313\python.exe`（3.13.9，依赖齐全）；**仓库内没有可用的 `.venv`** |
 | 当前计划 | [docs/plans/v1.1.2.md](docs/plans/v1.1.2.md)（v0.2，**已执行完成**）；上一版 [docs/plans/v1.1.1.md](docs/plans/v1.1.1.md)（v0.2，已完成） |
@@ -19,7 +19,9 @@
 - CLI：`python -m epub2pdf --cli`、`run.py`；新增 `--page-size {auto,A4,Letter,B5,6x9,7x10}`、`--page-height-pt`、`--font-scale {auto,compact,normal,loose}`。
 - **默认 auto 开本**：页面比例取封面图比例（误差实测 ≤ 0.09%），页高默认 9.25in（666pt），正文字号 = clamp(正文宽/40, 9, 13)pt，行距中文 1.55 / 西文 1.40，页边距按页宽比例（左右 11.5%、上 8%、下 9%）；封面满版 `object-fit:cover`。比例超出 0.58–0.86 或无封面 → A4 + WARNING。
 - `--page-size A4` 保持 v1.1.1 几何（595.28×841.89pt、18/16/20/16mm、11pt、1.5 行距、封面 contain），供对照回归。
-- **生成目录页**：封面后插入带点线和最终页码的目录页，每行可点击；行高/字号/缩进/边距随开本缩放。**v1.1.3 起点线只出现在标题文字与页码之间**（flex 布局），不再从列首贯穿、压住标题。
+- **生成目录页**：封面后插入带最终页码的目录页，每行可点击；行高/字号/缩进/边距随开本缩放。**v1.1.4 起目录页不再绘制任何横线/点线**：行为纯 flex（标题单行省略号 + 右对齐页码），用户要求的“原生感”以无装饰线实现。
+- **字号归一化（v1.1.4）**：EPUB CSS（外部样式表与内联 `<style>`）中任何解析后小于 **9pt** 的 `font-size` 都改写为绝对 `9pt`，覆盖嵌套 em、`%`、`rem`、`px` 与 InDesign/Word 导出的偏小类；大于等于 9pt 的标题/展示字号保持原比例。
+- **绝对 px 适配（v1.1.4）**：`width`/`max-width`/`min-width` 的 px 声明若宽于当前文本列，改写为 `min(Npx, 100%)`（`min-width` 置 0），覆盖样式表与内联 `style="..."`；窄 auto 页不再被 500–600px 固定容器撑破。
 - **PDF 书签**：默认 CDP `generateDocumentOutline` 多级书签；`--outline-source ncx` 为备选（层级较浅）。
 - 字体：全书 GID 并集子集化嵌入系统字体；支持 EPUB 内嵌 webfont 与 PostScript 字体名。
 - 封面：magic 嗅探 PNG/JPEG/GIF/WebP/BMP/SVG/AVIF/ICO；auto 满版，A4 等比 contain；TIFF 跳过并告警。
@@ -29,11 +31,10 @@
 
 **已知限制（发布时保留）**
 
-- 固定版式 EPUB（漫画/杂志，pre-paginated + viewport）仍按可重排渲染；DRM 加密 EPUB 不支持。
+- **固定版式/扫描版 EPUB**（漫画、杂志、扫描书）仍按可重排处理；其文本层由 `transform: scale()` 定位，字号归一化不会改变（*Advances in Financial Machine Learning* 的 6pt 文本层属此类，可见内容来自扫描图）。DRM 加密 EPUB 不支持。
 - **书签依赖渲染标题**：Chromium outline 只能从实际 `h1`–`h6` 生成。用 `<p class="PartStart">` 等段落模拟标题的书（如 *Advances in Financial Machine Learning*）只有 2 条书签；NCX 备选同样依赖导航标题。
-- **正文字号仍受 EPUB 自身 CSS 影响**：auto 只控制根字号与度量；EPUB class CSS 的 em 级联会让部分书正文只有 ~8pt（Systematic 8.0pt、Advances 6.0pt 行内字体）。字号归一化是非目标，列入 §8。
-- **EPUB 绝对 px 布局会留大边距**：auto 页面变窄后，若书内用固定 `width:500px` 容器，内容不铺满（Advances 右边距实测约 220pt）。属源文件绝对布局残留。
-- 生成目录页条目来自 EPUB 导航中能解析到渲染章节的条目；只列卷名的书只有卷名条目；原 nav 页保留为内容页（链接下划线绘制层已抑制）。
+- **字号下限是 9pt，不是动态适配**：可见正文众数实测 8.9–9.1pt（v1.1.4），仍有 <0.6% 的可见文字略低于 9pt（排版取整/继承），属可接受范围。
+- 生成目录页条目来自 EPUB 导航中能解析到渲染章节的条目；只列卷名的书只有卷名条目；原 nav 页保留为内容页。
 - 若 CDP 完全不可用，书签降级为扁平锚点书签。
 - 组装阶段大书 ~23s（PyMuPDF 快路径）；全流程仍受 CDP 渲染影响。
 - 书内 `<a>` 在 PDF 中是链接批注，部分查看器会自行加下划线；"消除下划线"指页面绘制层。
@@ -81,6 +82,18 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 
 ## 4. 变更清单
 
+### v1.1.4（2026-10-20）
+
+- `toc_page.py`：目录行彻底移除 leader（HTML 不再输出 `.leader`，CSS 无任何 `dotted/dashed` 绘制）；标题 `flex:1` + 8pt 间隙 + 页码固定列。
+- `normalizer.py`：`MIN_BODY_FONT_PT=9.0`、`_length_to_pt`、`_normalize_font_sizes`——CSS 与内联 `<style>` 中 <9pt 的 `font-size` 改写为绝对 9pt（保留 `!important`，关键词/calc 不动）。
+- `normalizer.py`：`_clamp_px_widths`——超出文本列的 `width/max-width/min-width` px 声明改为 `min(Npx, 100%)` / `0`；同时作用于内联 `style="..."`。
+- 测试：新增 fixture `tinyfont.epub`、`pxlayout.epub`；`tests/test_normalizer.py` +6 单测；`tests/e2e/test_typography_e2e.py`、`test_pixel_layout_e2e.py`；e2e 目录页改为「无任何细线」断言。全量 **120 项**（e2e 24）。
+- 版本 `1.1.4`；README/RELEASE_NOTES 更新；HANDOFF 本文件同步。
+
+### v1.1.3（2026-10-20）
+
+- 目录点线改为 flex 间隙（不再压字）；追加 e2e 重叠检测；**已被 v1.1.4 的“完全无横线”取代**。
+
 ### v1.1.2（2026-10-20）
 
 - 新增 `layout.py`（无第三方依赖）：封面比例 → auto 开本；页高/字号/行距/边距按设计公式缩放；A4 显式模式保持 v1.1.1 几何。
@@ -122,11 +135,27 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 - 原始 JS EPUB：v1.1.2 修复前 ebooklib 直接失败，v1.1.2 **转换成功**（354 页，目录 277 行，书签 392 条/4 层）。
 - 打包：`dist\EpubToPdf\EpubToPdf.exe` **12,767,225 B**（12:41 构建，onedir）；`--cli` 转 Systematic 默认 auto → 277 页 / 9.9s / 471.3×666pt；转 `basic.epub --page-size A4` → 57,305 B；GUI 启动日志 `shown winId=1 visible=True`。
 
-**v1.1.3（目录引导线修复）**
+**v1.1.4（2026-10-20，本机实测）**
 
-- 单测 `test_leader_is_a_flexible_gap_starting_after_the_title` + e2e `test_dot_leaders_do_not_run_under_titles`（basic.epub：dot 矩形与任意文字行 bbox 无水平/垂直重叠）；全量 **112 passed**（e2e 22）。
-- 真实书复测：测试驱动开发（中文，474×666pt、283 页）与 Systematic Trading（470.9×666pt、277 页）目测点线均从标题后开始。
-- 打包：`dist\EpubToPdf\EpubToPdf.exe` **12,767,136 B**（12:57 重建）；exe `--cli` 转中文书 → 283 页 / 25.0s / 点线重叠 0；转 `basic.epub --page-size A4` → 6 页 / 56,854 B / 元数据 `epub2pdf/1.1.3`；GUI 启动日志 `shown winId=1 visible=True`。
+- 目录页：e2e 断言目录页 `height<=1pt 且 width>=3pt` 的绘制数量为 **0**；中文《测试驱动开发》重转 283 页 / 474×666pt / 细线绘制 **0**；截图 `output/toc_noline_cn.png` 目测无任何横线。
+- 字号归一化（auto，可见文字排除 1px 透明锚点后统计）：
+
+| 书 | 可见正文众数 | <9pt 占比 | v1.1.4 前 |
+| --- | --- | --- | --- |
+| Systematic Trading | **8.9pt** | 0.56% | 8.0pt |
+| Spec-Driven AI Engineering | **8.9pt** | 0.43% | 全文 24.2% 落在 7.5–8.5pt |
+| 测试驱动开发（中文） | **9.1pt** | 0.00% | 9.1pt（已达标） |
+
+- 绝对 px：Systematic 生成 HTML 中 **15 处**超宽 px 容器被改写为 `min(Npx,100%)`；fixture `pxlayout.epub`（600px 容器 + 300×450 封面、443×666pt 页）正文右边距通过 ≤90%W 断言。Spec 的 px 容器均小于文本列宽（不触发）；Advances 为扫描版无 px 宽度。
+- 测试：`pytest -q` → **120 passed**（e2e 24）；全量两次 exit 0。
+- 打包：`dist\EpubToPdf\EpubToPdf.exe` **12,769,049 B**（v1.1.4，13:10 构建，onedir）。exe smoke：
+  - `--cli basic.epub --page-size A4` → 6 页 / 595×841.9pt / 目录页细线 0 / 书签 5 / 元数据 `epub2pdf/1.1.4`；
+  - `--cli 测试驱动开发…epub`（默认 auto）→ **284 页 / 474×666pt / 目录页细线 0 / 书签 124 / 可见正文众数 9.1pt**；
+  - GUI 启动日志 `app: shown winId=1 visible=True`。
+
+**v1.1.3（目录点线，已被 v1.1.4 取代）**
+
+- 当时用 flex 间隙承载点线并通过“无重叠”e2e；用户仍认为横线破坏原生感，v1.1.4 直接删除绘制。
 
 **v1.1.1（@page 修复，保留作对照）**
 
@@ -148,21 +177,21 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 
 ## 7. 下一任务及动作
 
-1. 无 P0 阻塞；v1.1.2 已发布（tag `v1.1.2`）。
-2. **下一任务**：与用户确认 v1.2 优先级（见 §8）。建议先做「正文字号归一化」（实测部分书正文 6–8pt）与「EPUB 绝对 px 容器适配」（auto 窄页留白）。
-3. 回归入口：`F:\python313\python.exe -m pytest -q`（110 项）、`-m e2e`（21 项真实 Edge）。
+1. 无 P0 阻塞；v1.1.4 已发布（tag `v1.1.4`）。
+2. **下一任务**：与用户确认 v1.2 优先级（见 §8）。可直接开工的候选：无 h1–h6 书籍的书签回退；固定版式/扫描版 EPUB 的页面尺寸识别。
+3. 回归入口：`F:\python313\python.exe -m pytest -q`（120 项）、`-m e2e`（24 项真实 Edge）。
 
 ## 8. v1.2 候选（未承诺）
 
 | 候选 | 说明 | 依据/状态 |
 | --- | --- | --- |
-| 正文字号归一化 | 对过小 `font-size` 规则做下限重写（如正文类 < 0.85em 提升），保留表格/图注差异 | 实测 Systematic 正文 8.0pt、Advances 行内 6.0pt；v1.1.2 非目标 |
-| EPUB 绝对 px 适配 | 对固定 `width:Npx` 容器按页宽缩放或加 max-width，解决窄页右侧大留白 | Advances 右边距 ~220pt |
 | 书签回退 | 无 h1–h6 时用导航中段落锚点/首行文本生成书签 | Advances 仅 2 条 |
 | 目录页进阶 | 卷/章两级缩进已支持；超长标题省略号、可选"只列章" | 未立项 |
-| 固定版式 EPUB | pre-paginated/viewport 按原始页尺寸渲染 | 当前按可重排，需求未确认 |
+| 固定版式 EPUB | 识别 pre-paginated/viewport 与扫描版，按原始页尺寸渲染 | 当前按可重排，需求未确认 |
 | 深色/自定义 CSS | 用户自定义主题 | 未立项 |
 | 封面 TIFF | 引入 Pillow 转码 | 已决定不引入（AGENTS §7） |
+
+> 字号归一化与绝对 px 适配已在 v1.1.4 落地，不再列为候选；扫描版文本层的 6pt 属固定版式问题。
 
 ## 9. 变更记录
 
@@ -172,4 +201,5 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 | 2026-10-20 | v1.1.0 | commit `0b04e48` / tag `v1.1.0`：生成目录页 + 可点击行、NCX 备选书签、封面 magic 嗅探、嵌套导航解析修复、GUI 打开输出目录、PyMuPDF 快路径 |
 | 2026-10-20 | v1.1.1 | tag `v1.1.1`（`512806f`）：清洗 EPUB `@page` + 兜底 A4 页边距、spec excludes 清理构建污染 |
 | 2026-10-20 | v1.1.2 | auto 开本（封面比例）+ 排版度量缩放 + GUI 手动开始/选项 + 容错读 EPUB + TOC 扩展名兼容；110 项测试（e2e 21）；计划 v1.1.2 回填 §10；发布提交 `8d86e0d` / tag `v1.1.2` |
-| 2026-10-20 | v1.1.3 | 目录页引导线改为 flex 间隙（不再压字/像下划线）；新增单测 + e2e 重叠检测；112 项测试（e2e 22）；发布提交 `7302e24` / tag `v1.1.3` |
+| 2026-10-20 | v1.1.3 | 目录页引导线改为 flex 间隙（已被 v1.1.4 取代）；112 项测试（e2e 22）；发布提交 `7302e24` / tag `v1.1.3` |
+| 2026-10-20 | v1.1.4 | 目录页彻底无横线；字号归一化（9pt 下限）；绝对 px 容器 clamp；120 项测试（e2e 24）；发布 tag `v1.1.4` |

@@ -3,6 +3,23 @@
 > 本文件保存根因、排查方法和踩坑细节；HANDOFF.md 只保留一行指针。
 > 按时间倒序，每条注明日期与版本/基线。
 
+## 2026-10-20 · v1.1.4：目录页必须“无横线”，点线本身就是问题
+
+- v1.1.3 把点线从列首移到了标题与页码之间，几何上不再压字，但用户仍认为“丑陋的横线没去掉”。复盘：`0.75pt dotted` 在低缩放下会被渲染器/阅读器连成细实线，而读者对目录页的预期是**没有任何装饰线**；只要画线，就存在被当成下划线的观感风险。
+- 修法：`toc_page.build_toc_html` 彻底删除 leader（HTML 不输出、CSS 无 `dotted/dashed/border-bottom`），行改为纯 flex：标题（flex:1 + nowrap + ellipsis + 8pt padding）→ 页码固定列。页码仍右对齐、行矩形仍可点击。
+- 测试：e2e 断言目录页所有 `height<=1pt 且 width>=3pt` 的绘制数量为 0（`doc[i].get_drawings()`）；重转中文书实测细线绘制 0。
+- **教训**：当用户说“像下划线”时，不要只调整线位置/颜色，先确认这条线是否是需求本身；"原生感"通常意味着删掉装饰，而不是美化装饰。
+
+## 2026-10-20 · v1.1.4：字号归一化与绝对 px 适配
+
+- 根因：EPUB 的 `font-size` 以 em 逐级相乘（InDesign 常见 `0.76em` 嵌 `0.71em` → 0.54em ≈ 5.9pt），而 converter 只设定根字号 `html{font-size:...}`，无法阻止子级缩到不可读；另外 `width:500px`/`600px` 容器在窄 auto 页（文本列 ~340pt=453px）会超宽。
+- 修法：
+  - `normalizer._normalize_font_sizes`：对所有 `font-size` 声明做单位解析（px/pt/em/rem/%/pc/in/cm/mm，`em`/`rem`/`%` 按根字号估算），解析值 < 9pt 时改写为绝对 `9pt`（保留 `!important`；关键词/`calc()` 不处理）。外部样式表与章节内联 `<style>` 都走同一函数。
+  - `normalizer._clamp_px_widths`：`width/max-width/min-width` 的 px 值若超过 `layout.text_width_pt`，改为 `min(Npx, 100%)`（`min-width` 置 0）；`<style>` 与元素的 `style="..."` 都处理。
+- 验证（auto 默认；排除 1px 透明锚点后统计可见文字）：Systematic 正文众数 8.0→**8.9pt**、Spec 由“24.2% 落在 7.5–8.5pt”变为 **8.9pt / <9pt 占 0.43%**、中文书 9.1pt；Systematic 生成 HTML 有 15 处超宽 px 容器被 clamp。
+- **教训**：排版归一化要在“最终 HTML 的 CSS 文本”上做，不能只改根字号；任何字号改写都要有“可读下限”测试 + 真实书字号分布证据，避免把图注/表格差异误伤（只抬低于下限的值）。
+- 未能覆盖：扫描版/固定版式 EPUB（Advances）的文本层由 `transform: scale()` 定位，字号与位置来自扫描页，9pt 归一化不适用；这属于固定版式渲染问题。
+
 ## 2026-10-20 · v1.1.3：目录页点线压住标题
 
 - 现象：生成的目录页上，每行的点线（dot leader）看起来像整行的下划线，中文书尤其明显；用户截图显示点线从列首贯穿到页码。

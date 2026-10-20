@@ -1,20 +1,51 @@
-# EPUB2PDF v1.1.3
+# EPUB2PDF v1.1.4
 
-Bug-fix release for the generated table-of-contents pages.
+Reading-quality release: the generated TOC is now completely rule-free, undersized
+EPUB fonts are lifted to a readable floor, and fixed-pixel EPUB layouts are clamped
+to the printable column.
 
-## Fixed
+## Changed
 
-- **Dot leaders no longer run underneath the title text.** Each TOC row is now a
-  flex layout (title -> dot leader -> page number), so the leader fills only the
-  gap between the title and the page number. This removes the "underline" look
-  on TOC pages for both CJK and Latin books.
-- Long titles keep the single-line ellipsis behaviour; the page-number column
-  and the clickable row rectangles are unchanged.
+- **No more rules on the table-of-contents page.** v1.1.3 only moved the dotted
+  leader; the rule itself still looked like an underline in many viewers. The TOC
+  row is now a plain flex row: title (`flex:1`, ellipsis) + right-aligned page
+  number, with no decorative strokes at all.
+- **Font-size normalization.** Any `font-size` in the EPUB CSS (stylesheets and
+  inline `<style>` blocks) that resolves below **9pt** is rewritten to an absolute
+  `9pt`. This covers nested `em` chains, `%`, `rem`, `px` and `small`-ish values
+  produced by InDesign/Word exports. Deliberately larger display type is untouched.
+- **Absolute-pixel layout adaptation.** `width` / `max-width` / `min-width`
+  declarations in px that are wider than the printable text column are wrapped in
+  `min(<px>, 100%)` (or zeroed for `min-width`), for both stylesheets and inline
+  `style="..."` attributes. Fixed 500–600px boxes no longer run past the margin on
+  narrow auto-sized pages.
+
+## Verification
+
+- 120 tests (24 real-Edge e2e) pass; new fixtures `tinyfont.epub` and
+  `pxlayout.epub` cover the font floor and the px clamp.
+- Real books with default auto layout: dominant visible body font 8.9pt
+  (Systematic Trading, was 8.0pt), 8.9pt (Spec-Driven AI Engineering, was mostly
+  7.5–8.5pt), 9.1pt (CJK book); visible text below 9pt is now under 0.6%.
+- Generated PDFs keep their page geometry, bookmarks, TOC page numbers and link
+  annotations.
+
+## Known limitations
+
+- Scanned/fixed-layout EPUBs (for example *Advances in Financial Machine Learning*)
+  are still reflowed; their text layer is positioned by `transform: scale()` and
+  keeps its original tiny font size. They are image-based pages, so the visible text
+  comes from the scan.
 
 ## Compatibility
 
-- No CLI/GUI option changes. Page geometry, bookmarks, page numbers and link
-  targets are identical to v1.1.2.
+- CLI/GUI options, page-size defaults (`auto`), outline sources and output naming
+  are unchanged from v1.1.3.
+
+# EPUB2PDF v1.1.3
+
+Historical bug-fix: the TOC dotted leader was moved out from under the title text
+(flex row). Superseded by v1.1.4, which removes the rule entirely.
 
 # EPUB2PDF v1.1.2
 

@@ -1,4 +1,5 @@
 """epub2pdf - offline EPUB to PDF converter."""
 
-__version__ = "1.1.3"
+__version__ = "1.1.4"
+
 

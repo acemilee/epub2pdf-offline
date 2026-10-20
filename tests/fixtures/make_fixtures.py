@@ -248,6 +248,111 @@ def build_svgcover() -> Path:
     return _write(book, "svgcover.epub")
 
 
+TINYFONT_CSS = """
+@page { margin: 0; }
+body { font-family: "Segoe UI", sans-serif; margin: 0; padding: 0; }
+h1 { font-size: 1.4em; }
+p.body { font-size: 0.76em; line-height: 1.4; margin: 0 0 0.5em 0; }
+span.note { font-size: 0.71em; }
+"""
+
+
+def build_tinyfont() -> Path:
+    """Book whose nested em rules multiply down to unreadable sizes.
+
+    Effective paragraph size is ``0.76em`` of ``11pt`` (8.36pt) and the
+    nested ``span.note`` is ``0.76 * 0.71 = 0.54em`` (~5.9pt).  The
+    normalizer must lift both to its 9pt floor.
+    """
+    book = _new_book("fixture-tinyfont", "Tiny Font Fixture")
+    style = _add_style(book, TINYFONT_CSS)
+
+    chapters = []
+    for index in range(1, 4):
+        title = f"Tiny Font Chapter {index}"
+        chapter = epub.EpubHtml(
+            title=title, file_name=f"tiny{index}.xhtml", lang="en"
+        )
+        chapter.content = (
+            "<html><head><title>%s</title></head><body>"
+            "<h1>%s</h1>%s</body></html>"
+            % (
+                title,
+                title,
+                "".join(
+                    f'<p class="body">Readable paragraph {n} for the tiny font '
+                    'fixture. <span class="note">A nested note that would '
+                    "otherwise shrink to six points or less on paper.</span>"
+                    "</p>"
+                    for n in range(1, 7)
+                ),
+            )
+        )
+        chapter.add_item(style)
+        book.add_item(chapter)
+        chapters.append(chapter)
+
+    book.toc = [epub.Link(ch.file_name, ch.title, ch.file_name) for ch in chapters]
+    book.spine = ["nav", *chapters]
+    _add_ncx_nav(book)
+    return _write(book, "tinyfont.epub")
+
+
+PXLAYOUT_CSS = """
+body { font-family: "Segoe UI", sans-serif; margin: 0; padding: 0; }
+p { font-size: 1em; margin: 0 0 0.5em 0; }
+.box { width: 600px; }
+"""
+
+
+def build_pxlayout() -> Path:
+    """Narrow (SVG cover) book with fixed 600px-wide containers.
+
+    600px is 450pt, wider than the ~341pt text column of the auto page, so
+    the normalizer has to clamp both the stylesheet rule and the inline
+    style to the printable width.
+    """
+    book = _new_book("fixture-pxlayout", "Pixel Layout Fixture")
+    style = _add_style(book, PXLAYOUT_CSS)
+
+    chapters = []
+    for index in range(1, 4):
+        title = f"Pixel Layout Chapter {index}"
+        chapter = epub.EpubHtml(
+            title=title, file_name=f"px{index}.xhtml", lang="en"
+        )
+        chapter.content = (
+            "<html><head><title>%s</title></head><body>"
+            "<h1>%s</h1>"
+            '<div class="box">%s</div>'
+            '<div style="width:600px">%s</div>'
+            "</body></html>"
+            % (
+                title,
+                title,
+                "".join(
+                    f"<p>Fixed width box paragraph {n} for the pixel layout "
+                    "fixture. It must not run past the printable column.</p>"
+                    for n in range(1, 5)
+                ),
+                "".join(
+                    f"<p>Inline width paragraph {n} for the pixel layout "
+                    "fixture. It must also stay inside the text column.</p>"
+                    for n in range(1, 5)
+                ),
+            )
+        )
+        chapter.add_item(style)
+        book.add_item(chapter)
+        chapters.append(chapter)
+
+    book.set_cover("cover.svg", SVG_COVER, create_page=True)
+    book.toc = [epub.Link(ch.file_name, ch.title, ch.file_name) for ch in chapters]
+    book.spine = ["nav", *chapters]
+    _add_ncx_nav(book)
+    return _write(book, "pxlayout.epub")
+
+
 def main() -> None:
     FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
     for builder in (
@@ -256,6 +361,8 @@ def main() -> None:
         build_fontsplit,
         build_svgcover,
         build_zeromargin,
+        build_tinyfont,
+        build_pxlayout,
     ):
         path = builder()
         print(f"wrote {path} ({path.stat().st_size} bytes)")

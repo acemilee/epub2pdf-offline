@@ -61,17 +61,14 @@ def test_build_toc_html_has_one_row_per_entry_with_page_numbers():
     assert ">Chapter One<" in html
     assert ">Section One<" in html
     assert ">5<" in html and ">6<" in html and ">9<" in html
-    # Dot leaders, never underlined text.
-    assert "border-bottom: 0.75pt dotted" in html
+    # Clean native-looking TOC: no dotted/dashed leader lines at all.
+    assert "leader" not in html
+    assert "dotted" not in html
     assert "text-decoration: underline" not in html
 
 
-def test_leader_is_a_flexible_gap_starting_after_the_title():
-    """Leaders must occupy only the space after the title text.
-
-    The old absolute leader started at the column's left edge, so the dotted
-    line ran underneath the title and looked like an underline.
-    """
+def test_rows_are_title_and_page_number_without_leader_lines():
+    """No leader lines: the gap between title and page number stays empty."""
     entries = [_anchor("EPBPFTOC_1", "Chapter One", 0)]
     html = toc_page.build_toc_html(
         entries,
@@ -81,11 +78,8 @@ def test_leader_is_a_flexible_gap_starting_after_the_title():
         title="Contents",
     )
     assert "display: flex" in html
-    leader = re.search(r'<div class="leader"([^>]*)>', html)
-    assert leader is not None
-    assert "left:" not in leader.group(1)
-    # The title comes before the leader in document order (flex gap layout).
-    assert html.index('class="t"') < html.index('class="leader"') < html.index('class="n"')
+    assert 'class="t"' in html and 'class="n"' in html
+    assert html.index('class="t"') < html.index('class="n"')
 
 
 def test_build_toc_html_paginates_after_rows_per_page():

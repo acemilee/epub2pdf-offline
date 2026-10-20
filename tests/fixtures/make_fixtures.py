@@ -424,6 +424,58 @@ def build_longchapter() -> Path:
     return _write(book, "longchapter.epub")
 
 
+def build_partialnested() -> Path:
+    """Sparse Chromium outline, but a deep EPUB navigation document.
+
+    Each chapter hides its title in ``<p class="PartStart">`` (so Chromium sees
+    only the one real ``<h1>``), while the EPUB TOC still lists the chapter plus
+    three sections per chapter.  The assembler should fall back to the EPUB
+    navigation so these books get nested bookmarks instead of one flat entry
+    per chapter.
+    """
+    book = _new_book("fixture-partialnested", "Partial Nested Fixture")
+    style = _add_style(book, PARTIALHEADS_CSS)
+
+    chapters = []
+    toc = []
+    for index in range(1, 6):
+        title = f"Chapter {index}: Styled Heading"
+        chapter = epub.EpubHtml(
+            title=title, file_name=f"nested{index}.xhtml", lang="en"
+        )
+        body = [
+            f"<h1>{title}</h1>" if index == 1 else f'<p class="PartStart">{title}</p>'
+        ]
+        sections = []
+        for section in range(1, 4):
+            anchor = f"c{index}s{section}"
+            body.append(
+                f'<p id="{anchor}">Section {index}.{section}. '
+                f"Body text for the nested fixture.</p>"
+            )
+            sections.append(
+                epub.Link(
+                    f'{chapter.file_name}#{anchor}',
+                    f"Section {index}.{section}",
+                    anchor,
+                )
+            )
+        chapter.content = (
+            f"<html><head><title>{title}</title></head><body>"
+            + "".join(body)
+            + "</body></html>"
+        )
+        chapter.add_item(style)
+        book.add_item(chapter)
+        chapters.append(chapter)
+        toc.append((epub.Section(title, href=chapter.file_name), sections))
+
+    book.toc = toc
+    book.spine = ["nav", *chapters]
+    _add_ncx_nav(book)
+    return _write(book, "partialnested.epub")
+
+
 def main() -> None:
     FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
     for builder in (
@@ -435,6 +487,7 @@ def main() -> None:
         build_tinyfont,
         build_pxlayout,
         build_partialheads,
+        build_partialnested,
         build_longchapter,
     ):
         path = builder()

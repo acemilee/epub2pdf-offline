@@ -460,6 +460,20 @@ def _flatten_outline_titles(items) -> set[str]:
     return titles
 
 
+def _outline_is_sparse(raw_reader: PdfReader, book: EpubBook) -> bool:
+    """True when Chromium's heading-based outline misses most of the book.
+
+    Books that fake headings with ``<p class="PartStart">`` only expose one or
+    two real ``h1``-``h6`` nodes, even though the EPUB navigation document has
+    the full chapter/section tree.
+    """
+    body_chapters = [
+        ch for ch in book.chapters if not ch.is_cover_only and not ch.is_nav
+    ]
+    titles = _flatten_outline_titles(getattr(raw_reader, "outline", None))
+    return len(titles) < max(3, int(len(body_chapters) * _SPARSE_OUTLINE_RATIO))
+
+
 def _supplement_outline(
     writer: PdfWriter,
     raw_reader: PdfReader,
@@ -903,14 +917,20 @@ def assemble(
     page_offset = len(cover_pages) + len(toc_pages)
     anchor_page_index = _build_page_index(page_texts)
     outline_count = 0
-    if outline_source == "ncx" and toc_anchors:
+    rich_navigation = bool(toc_anchors) and (
+        outline_source == "ncx" or _outline_is_sparse(reader, book)
+    )
+    if rich_navigation:
+        # The EPUB navigation document carries the full hierarchy.  For books
+        # with sparse or missing Chromium headings this produces nested
+        # bookmarks instead of one flat entry per chapter.
         outline_count = _build_outline_from_toc(
             writer,
             toc_anchors,
             anchor_page_index,
             page_offset=page_offset,
         )
-    else:
+    if outline_count == 0:
         try:
             outline_count = _copy_outline(writer, reader, page_offset)
         except Exception:
@@ -923,7 +943,7 @@ def assemble(
             cover_offset=page_offset,
             page_texts=page_texts,
         )
-    elif outline_source != "ncx":
+    elif outline_source != "ncx" and not rich_navigation:
         # Chromium produced *some* outline, but it may be too sparse for books
         # whose "headings" are styled paragraphs.  Top up with chapter anchors.
         try:

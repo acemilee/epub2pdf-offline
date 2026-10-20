@@ -7,8 +7,8 @@
 
 | 项 | 值 |
 | --- | --- |
-| 当前版本 | **v1.1.6**（2026-10-20，原生阅读感：页眉 running head；基线 v1.1.5 = 页脚页码 + 稀疏书签补全 + PDF 语言元数据；v1.1.4 = 目录无横线 + 字号 9pt 下限 + 绝对 px 适配；v1.1.2 = auto 开本 + GUI 手动开始 + 容错读 EPUB） |
-| 代码基线 | 发布提交见 §9（tag `v1.1.6`）；上一版 `v1.1.5` = `5a85bd3`，`v1.1.4` = `13eca87`，`v1.1.3` = `7302e24`，`v1.1.2` = `8d86e0d`，`v1.1.1` = `512806f`，`v1.1.0` = `0b04e48` |
+| 当前版本 | **v1.1.7**（2026-10-20，原生阅读感：稀疏书签用 EPUB 导航补全成多级；基线 v1.1.6 = 页眉 running head；v1.1.5 = 页脚页码 + 稀疏书签补全 + PDF 语言元数据；v1.1.4 = 目录无横线 + 字号 9pt 下限 + 绝对 px 适配；v1.1.2 = auto 开本 + GUI 手动开始 + 容错读 EPUB） |
+| 代码基线 | 发布提交见 §9（tag `v1.1.7`）；上一版 `v1.1.6` = `f2b498b`，`v1.1.5` = `5a85bd3`，`v1.1.4` = `13eca87`，`v1.1.3` = `7302e24`，`v1.1.2` = `8d86e0d`，`v1.1.1` = `512806f`，`v1.1.0` = `0b04e48` |
 | 运行环境 | Windows 10/11 + Microsoft Edge（本机 **155.0.4283.62**） |
 | 开发解释器 | `F:\python313\python.exe`（3.13.9，依赖齐全）；**仓库内没有可用的 `.venv`** |
 | 当前计划 | [docs/plans/v1.1.2.md](docs/plans/v1.1.2.md)（v0.2，**已执行完成**）；上一版 [docs/plans/v1.1.1.md](docs/plans/v1.1.1.md)（v0.2，已完成） |
@@ -22,7 +22,7 @@
 - **生成目录页**：封面后插入带最终页码的目录页，每行可点击；行高/字号/缩进/边距随开本缩放。**v1.1.4 起目录页不再绘制任何横线/点线**：行为纯 flex（标题单行省略号 + 右对齐页码），用户要求的“原生感”以无装饰线实现。
 - **字号归一化（v1.1.4）**：EPUB CSS（外部样式表与内联 `<style>`）中任何解析后小于 **9pt** 的 `font-size` 都改写为绝对 `9pt`，覆盖嵌套 em、`%`、`rem`、`px` 与 InDesign/Word 导出的偏小类；大于等于 9pt 的标题/展示字号保持原比例。
 - **绝对 px 适配（v1.1.4）**：`width`/`max-width`/`min-width` 的 px 声明若宽于当前文本列，改写为 `min(Npx, 100%)`（`min-width` 置 0），覆盖样式表与内联 `style="..."`；窄 auto 页不再被 500–600px 固定容器撑破。
-- **PDF 书签**：默认 CDP `generateDocumentOutline` 多级书签；`--outline-source ncx` 为备选（层级较浅）。**v1.1.5 起**：若 Chromium outline 稀疏（< max(3, 非封面章数×35%)），用章节锚点为缺失章节补扁平书签。
+- **PDF 书签**：默认 CDP `generateDocumentOutline` 多级书签；`--outline-source ncx` 为备选（层级较浅）。**v1.1.7 起**：若 Chromium outline 稀疏（< max(3, 非封面章数×35%)）且存在 EPUB 导航锚点，改用 **EPUB 导航**生成完整层级书签（*Advances in Financial Machine Learning* 由 6 条增至 **244 条**）；导航页仍逐级保留。无导航锚点时退回章节级扁平补全（v1.1.5 行为）。
 - **页脚页码（v1.1.5）**：组装阶段用 PyMuPDF 在每页底部居中写入物理页码（封面不编号；灰色 0.35、字号 = clamp(0.82×正文字号,7,9)pt），与目录页页码、书签目标一致；`--no-page-numbers` 关闭。
 - **页眉 running head（v1.1.6）**：继续页在顶部居中写入小号灰字（章标题，缺失时用书名；CJK 用内置中文字体），章首页因已有大标题而不重复、固定版式/扫描页内容触顶时自动跳过；`--no-running-headers` 关闭。
 - **PDF 原生元数据（v1.1.5）**：catalog 写入 `/Lang`（取 EPUB `dc:language`）与 `/ViewerPreferences /DisplayDocTitle true`，阅读器窗口标题显示书名；`<html lang>` 同步为书语言。
@@ -35,7 +35,9 @@
 **已知限制（发布时保留）**
 
 - **固定版式/扫描版 EPUB**（漫画、杂志、扫描书）仍按可重排处理；其文本层由 `transform: scale()` 定位，字号归一化不会改变（*Advances in Financial Machine Learning* 的 6pt 文本层属此类，可见内容来自扫描图）。DRM 加密 EPUB 不支持。
-- **书签依赖渲染标题**：Chromium outline 只能从实际 `h1`–`h6` 生成。用 `<p class="PartStart">` 等段落模拟标题的书原本只有 1–2 条书签；v1.1.5 会补章节级扁平书签（*Advances in Financial Machine Learning* 由 2 条增至 6 条），但**章内小节仍无书签**（源文件无真实标题元素）。
+- **书签依赖渲染标题或 EPUB 导航**：Chromium outline 只能从实际 `h1`–`h6` 生成。用 `<p class="PartStart">` 等段落模拟标题的书原本只有 1–2 条书签；v1.1.7 会改用 EPUB 导航补全（*Advances in Financial Machine Learning* 2 → **244 条**）。若该书导航本身是扁平的（InDesign 常见），书签层级也只有一层，但每章/节都有入口。
+- 生成目录页条目来自 EPUB 导航中能解析到渲染章节的条目；只列卷名的书只有卷名条目；原 nav 页保留为内容页。
+- **v1.1.7 的真实书基线**：`Systematic Trading` 仍是 Chromium 305 条/4 层（不触发导航回退）；`毛泽东选集` 708 条/5 层。
 - **字号下限是 9pt，不是动态适配**：可见正文众数实测 8.9–9.1pt（v1.1.4），仍有 <0.6% 的可见文字略低于 9pt（排版取整/继承），属可接受范围。
 - 生成目录页条目来自 EPUB 导航中能解析到渲染章节的条目；只列卷名的书只有卷名条目；原 nav 页保留为内容页。
 - 若 CDP 完全不可用，书签降级为扁平锚点书签。
@@ -45,8 +47,8 @@
 **待办 / 下一动作**
 
 1. **下一动作**：无 P0。继续「原生感」目标（goal round）：候选见 §8。
-2. 回归入口：`F:\python313\python.exe -m pytest -q`（**127 项**全绿，含 e2e 27 项真实 Edge）；`-m e2e` 仅 e2e。
-3. v1.1.5 发布后待补：打包产物未再跑真实大书（仅 smoke）。
+2. 回归入口：`F:\python313\python.exe -m pytest`（**132 项**全绿，含 e2e 30 项真实 Edge）；`-m e2e` 仅 e2e。
+3. 打包产物待真实大书 smoke（当前仅 fixtures smoke）。
 
 ## 2. 入口与常用命令
 
@@ -77,7 +79,7 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 | L1 解析 | `src/epub2pdf/core/parser.py` | EbookLib 读取（`_read_epub_tolerant` 容忍缺失文件）→ `EpubBook`；标题取文档顺序首个 `h1`–`h6`；递归解析嵌套导航 tuple |
 | L2 规范化 | `src/epub2pdf/core/normalizer.py` | 写 `assets/`、`fonts/`，重写资源路径、`@font-face url()`、清洗 EPUB `@page`；按 `Layout` 生成打印 CSS；注入章节 + TOC 锚点；返回 `NormalizeResult(html_path, toc_anchors, layout)` |
 | L3 渲染 | `src/epub2pdf/core/renderer.py` | **CDP 主路径**（`Page.printToPDF` + `generateDocumentOutline`，等字体/图片就绪，可取消）→ 失败回退 CLI `--print-to-pdf` |
-| L4 组装 | `src/epub2pdf/core/assembler.py` | 封面页 + 目录页 + 正文页；书签（Chromium outline / NCX / 稀疏补全）；目录行 `Link` 批注；页脚页码（PyMuPDF）；元数据 + `/Lang` + `DisplayDocTitle`；完整性校验；封面按 `layout.cover_fill` |
+| L4 组装 | `src/epub2pdf/core/assembler.py` | 封面页 + 目录页 + 正文页；书签（Chromium outline / EPUB 导航回退 / NCX / 稀疏补全）；目录行 `Link` 批注；页脚页码（PyMuPDF）；元数据 + `/Lang` + `DisplayDocTitle`；完整性校验；封面按 `layout.cover_fill` |
 | L4.5 目录页 | `src/epub2pdf/core/toc_page.py` | 两遍渲染稳定页码；`scale` 缩放行高/字号/缩进/边距；返回行链接坐标与目标页 |
 | L5 字体 | `src/epub2pdf/core/font_embed.py` | 两阶段：全书 GID 并集 → 子集化系统字体 → 写 `/FontFile2` |
 | 编排 | `src/epub2pdf/core/orchestrator.py` / `cli.py` | GUI 任务池（串行 1 并发，pending 队列由 `main_window` 管理）/ CLI 单次转换；取消、超时、阶段耗时 |
@@ -85,6 +87,13 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 `normalizer.py` 的 `_PRINT_CSS_TEMPLATE` / `_POST_EPUB_CSS_TEMPLATE`（token 替换）是版式核心；锚点 `EPBPFANCHOR_…_EPBPFANCHOR_END`、TOC 锚点 `EPBPFTOC_<n>`、文档尾 `EPBPFEND_DOCUMENT` 是 L4 定位依据。
 
 ## 4. 变更清单
+
+### v1.1.7（2026-10-20）
+
+- `assembler.py`：新增 `_outline_is_sparse(raw_reader, book)`；在写书签前先判断——若 Chromium outline 稀疏且存在 `toc_anchors`，直接用 `_build_outline_from_toc` 生成 **EPUB 导航的完整层级书签**（不再只补扁平章节）；导航解析失败时才退回 `_copy_outline` / `_add_outline` / `_supplement_outline`。`--outline-source ncx` 行为不变。
+- 测试：新 fixture `partialnested.epub`（5 章，标题全为 `<p class="PartStart">`，EPUB 导航含 5 章 + 15 小节）；`tests/e2e/test_rich_outline_e2e.py` 断言条目 ≥15、包含章/节标题、层级 ≥2；全量 **132 项**（e2e 30）。
+- 真实书：*Advances in Financial Machine Learning* 书签 **6 → 244 条**（源导航为扁平结构，深度 1）；*Systematic Trading* 仍 305 条/4 层、*毛泽东选集* 708 条/5 层，均未触发回退。
+- 版本 `1.1.7`；README/RELEASE_NOTES/HANDOFF/lessons 更新。
 
 ### v1.1.6（2026-10-20）
 
@@ -136,6 +145,13 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 - 新增 `toc_page.py`（生成目录页、可点击行、两遍稳定页码）；`TocAnchor`/`NormalizeResult`；NCX 备选；封面 magic 嗅探；嵌套导航 tuple 递归；GUI 打开输出目录；PyMuPDF 文本抽取快路径；`--outline-source`。
 
 ## 5. 验证证据
+
+**v1.1.7（2026-10-20，本机实测）**
+
+- 测试：`pytest` → **132 passed**（e2e 30）；`partialnested.epub` e2e 断言书签 ≥15 条、包含 `Chapter 3: Styled Heading` 与 `Section 3.2`、层级 ≥2。
+- 真实书对照：`Advances in Financial Machine Learning`（266 页）书签 **244 条**，首项 `About the Author`、含 `Chapter 1 …`/`1.1 Motivation` 等（v1.1.6 为 6 条）；页数/页眉/页码不变。
+- 未回退样本：`Systematic Trading`（330 页）outline 305 条/4 层；`毛泽东选集` 708 条/5 层；`Spec-Driven` 626 条/3 层。
+- 打包：`dist\EpubToPdf\EpubToPdf.exe` **12,777,491 B**（14:28:55 重建）；打包 exe `--cli` 转 `partialnested.epub` → 7 页 / 2.4s / 书签 20 条 / 深度 2 / Producer `epub2pdf/1.1.7`；转 `Advances`（无空格副本）→ 266 页 / 45.6s / 书签 **244 条**。
 
 **v1.1.6（2026-10-20，本机实测）**
 
@@ -226,7 +242,7 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 | 深色/自定义 CSS | 用户自定义主题 | 未立项 |
 | 封面 TIFF | 引入 Pillow 转码 | 已决定不引入（AGENTS §7） |
 
-> 页眉 running head 已在 v1.1.6 落地；书签回退（章节级）在 v1.1.5；字号归一化与绝对 px 适配在 v1.1.4。扫描版文本层的 6pt 属固定版式问题。
+> 页眉 running head 已在 v1.1.6 落地；稀疏书签改用 EPUB 导航建立层级在 v1.1.7；页脚页码在 v1.1.5；字号归一化与绝对 px 适配在 v1.1.4。扫描版文本层的 6pt 属固定版式问题。
 
 ## 9. 变更记录
 
@@ -240,3 +256,4 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 | 2026-10-20 | v1.1.4 | 目录页彻底无横线；字号归一化（9pt 下限）；绝对 px 容器 clamp；120 项测试（e2e 24）；发布提交 `13eca87` / tag `v1.1.4` |
 | 2026-10-20 | v1.1.5 | 页脚页码（`--no-page-numbers` 可关）；稀疏书签用章节锚点补全；`/Lang` + `DisplayDocTitle`；`<html lang>` 取书语言；127 项测试（e2e 27）；发布提交 `5a85bd3` / tag `v1.1.5` |
 | 2026-10-20 | v1.1.6 | 页眉 running head（章名/书名、CJK、章首页与扫描页跳过，`--no-running-headers` 可关）；131 项测试（e2e 29）；发布提交 `f2b498b` / tag `v1.1.6` |
+| 2026-10-20 | v1.1.7 | 稀疏书签改用 EPUB 导航补全成完整层级（Advances 6→244 条）；`partialnested.epub` fixture + e2e；132 项测试（e2e 30）；发布 tag `v1.1.7`（提交 hash 见 `git log`，随后续文档提交回填） |

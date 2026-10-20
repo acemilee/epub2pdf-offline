@@ -1,3 +1,27 @@
+# EPUB2PDF v1.1.7
+
+Reading-feel release: books that fake headings with styled paragraphs now get
+their real navigation hierarchy as PDF bookmarks instead of a short flat list.
+
+## Changed
+
+- **Navigation-backed bookmarks for sparse outlines.** Chromium only generates
+  bookmarks from real `h1`–`h6` elements. When its outline covers less than
+  `max(3, chapters × 35%)` of the book and the EPUB navigation document has
+  resolvable entries, the assembler now builds the bookmark tree from the EPUB
+  navigation (the same anchors that drive the generated table of contents).
+  *Advances in Financial Machine Learning* goes from 6 to **244** bookmarks;
+  books that already had a rich Chromium outline are untouched (Systematic
+  Trading 305, 毛泽东选集 708).
+
+## Verification
+
+- Unit + e2e suite green (real Edge). New fixture `partialnested.epub` (five
+  styled-paragraph chapters plus three nested sections each) asserts at least
+  15 bookmarks, chapter and section titles present, and nesting depth ≥ 2.
+- Regression samples keep their previous outline counts and depth; page count,
+  running heads and page numbers are unchanged.
+
 # EPUB2PDF v1.1.6
 
 Reading-feel release: continuation pages now carry a quiet running head (book or

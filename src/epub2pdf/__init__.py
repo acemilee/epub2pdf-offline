@@ -1,6 +1,6 @@
 """epub2pdf - offline EPUB to PDF converter."""
 
-__version__ = "1.1.6"
+__version__ = "1.1.7"
 
 
 

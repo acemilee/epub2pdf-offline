@@ -2,7 +2,7 @@
 
 A local Windows app for converting EPUB books to clean, readable PDF files.
 
-![Version](https://img.shields.io/badge/version-1.1.6-blue)
+![Version](https://img.shields.io/badge/version-1.1.7-blue)
 ![License](https://img.shields.io/badge/license-AGPL--3.0--or--later-green)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
@@ -35,8 +35,9 @@ The converter focuses on practical reading quality:
   render them.
 - EPUB navigation and the document's heading hierarchy become nested PDF
   bookmarks (levels follow `h1`–`h6`; the fallback renderer produces a flat,
-  chapter-level outline). Books whose "headings" are styled paragraphs get
-  chapter bookmarks added from their chapter anchors instead of a two-item list.
+  chapter-level outline). Books whose "headings" are styled paragraphs switch
+  to the EPUB navigation document, so they get the full chapter/section tree
+  (e.g. 244 bookmarks instead of 6) rather than a two-item list.
 - Page numbers are printed in the bottom margin of every page (the cover is
   left unnumbered), matching the generated TOC and bookmark destinations.
   `--no-page-numbers` disables them.

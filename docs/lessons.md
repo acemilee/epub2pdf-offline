@@ -1,7 +1,16 @@
 # Lessons（踩坑与根因记录）
 
-> 本文件保存根因、排查方法和踩坑细节；HANDOFF.md 只保留一行指针。
+> 本文件保存根因、排查方法和踩坑细节；HANDOFF.md 只保留指针。
 > 按时间倒序，每条注明日期与版本/基线。
+
+## 2026-10-20 · v1.1.7：书签回退要用“书的导航”，不要猜样式
+
+- **问题本质**：Chromium 的 `generateDocumentOutline` 只认真实 `h1`–`h6`。InDesign 类 EPUB 用 `<p class="PartStart">` 模拟标题，于是整本只有 1–2 条书签——这不是渲染 bug，是渲染器看不到结构。
+- **两条回退路线的取舍**：①按样式/字号猜标题（`p.PartStart`、加粗大字号段落）容易误判，规则无法跨书泛化；②用 EPUB 导航文档（nav/NCX）——它本来就是出版社给的层级，而且**项目已经为生成目录页解析过它**（`NormalizeResult.toc_anchors`，含 level 与 fragment 锚点）。选 ②：零猜测、和目录页同源、页码天然一致。
+- **实现要点**：回退必须在**拷贝 Chromium outline 之前**决定。`writer.add_outline_item` 只能追加，先拷再补会出现两套书签；`assembler.assemble` 里先用 `_outline_is_sparse(raw_reader, book)` 判断，再选 `_build_outline_from_toc` 或 `_copy_outline`。阈值用 `max(3, 非封面章数 × 35%)`，避免正常书被导航的浅层结构覆盖。
+- **证据**：*Advances in Financial Machine Learning* 6 → 244 条；先前的 `--outline-source ncx` 实验已提示这个方向（当时 244 条/1 层），本轮把它变成“自动且只在需要时触发”。阈值以上不受影响：Systematic 305/4、毛泽东 708/5、Spec 626/3。
+- **保留的局限**：若书内导航本身是扁平列表（InDesign 常见），补出来的书签也只有一层——入口齐全但没有章节层级；要真正分层需要出版社提供嵌套 nav，或做标题样式推断（未采纳）。
+- **教训（判断与执行）**：先量“书签覆盖率 vs 章节数”再定回退策略；不要用“看起来像标题”的文本启发式替代现成结构数据。
 
 ## 2026-10-20 · v1.1.6：页眉 running head 的“像书”规则
 

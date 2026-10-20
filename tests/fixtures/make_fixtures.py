@@ -396,6 +396,34 @@ def build_partialheads() -> Path:
     return _write(book, "partialheads.epub")
 
 
+def build_longchapter() -> Path:
+    """One multi-page chapter, used to assert running headers.
+
+    Chapter-opening pages deliberately omit the running head, so the fixture
+    needs a chapter long enough to span several continuation pages.
+    """
+    book = _new_book("fixture-longchapter", "Long Chapter Fixture")
+    _add_style(book)
+    title = "Chapter One: The Long Chapter"
+    chapter = epub.EpubHtml(title=title, file_name="long.xhtml", lang="en")
+    paragraphs = "\n".join(
+        f"<p>Paragraph {index}. The running head is only drawn on continuation "
+        "pages, because a chapter's first page already shows its title in "
+        "large type. This sentence exists to fill the line and keep the "
+        "paragraph realistic.</p>"
+        for index in range(1, 46)
+    )
+    chapter.content = (
+        f"<html><head><title>{title}</title></head><body>"
+        f"<h1>{title}</h1>{paragraphs}</body></html>"
+    )
+    book.add_item(chapter)
+    book.toc = [epub.Link(chapter.file_name, chapter.title, chapter.file_name)]
+    book.spine = ["nav", chapter]
+    _add_ncx_nav(book)
+    return _write(book, "longchapter.epub")
+
+
 def main() -> None:
     FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
     for builder in (
@@ -407,6 +435,7 @@ def main() -> None:
         build_tinyfont,
         build_pxlayout,
         build_partialheads,
+        build_longchapter,
     ):
         path = builder()
         print(f"wrote {path} ({path.stat().st_size} bytes)")

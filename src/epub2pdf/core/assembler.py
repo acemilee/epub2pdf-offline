@@ -55,6 +55,9 @@ ANCHOR_RE = re.compile(
     _spaced_literal(ANCHOR_PREFIX) + r"([\s\S]{0,200}?)" + _spaced_literal(ANCHOR_SUFFIX)
 )
 END_MARKER_RE = re.compile(_spaced_literal(END_MARKER))
+
+# Used to pick a built-in CJK font for running heads / labels.
+_CJK_RE = re.compile(r"[\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef]")
 A4_WIDTH_PT = 595.275590551
 A4_HEIGHT_PT = 841.88976378
 
@@ -557,6 +560,157 @@ def _stamp_page_numbers(
     return stamped
 
 
+def _stamp_running_headers(
+    pdf_path: str,
+    *,
+    book_title: str = "",
+    chapter_pages: dict[int, str] | None = None,
+    skip_pages: int = 0,
+    layout=None,
+    deadline: float | None = None,
+) -> int:
+    """Draw a small centered running head in the top margin.
+
+    Paper books carry a running head (book or chapter title); adding a quiet
+    grey one is what makes a generated PDF feel typeset instead of printed
+    from a browser.  Chapter titles come from the same anchors used for the
+    bookmarks, so the header always agrees with the navigation.
+
+    Pages whose content already reaches the top margin (fixed-layout or
+    scanned books) are skipped to avoid painting over content.
+    """
+    try:
+        import fitz  # PyMuPDF
+    except ModuleNotFoundError:
+        return 0
+    try:
+        doc = fitz.open(pdf_path)
+    except Exception:
+        return 0
+
+    chapter_pages = dict(chapter_pages or {})
+    base_font = float(getattr(layout, "font_size_pt", 11.0) or 11.0)
+    font_size = max(6.5, min(8.0, round(base_font * 0.72, 1)))
+    top_margin = float(getattr(layout, "margin_top_pt", 51.0) or 51.0)
+    width_limit = float(getattr(layout, "text_width_pt", 0.0) or 0.0)
+    if width_limit <= 0 and doc.page_count:
+        width_limit = max(120.0, float(doc[0].rect.width) - 2.0 * top_margin)
+    y = max(font_size + 2.0, top_margin / 2.0 + font_size * 0.35)
+    stamped = 0
+    try:
+        for index in range(max(0, skip_pages), doc.page_count):
+            if deadline is not None and time.monotonic() >= deadline:
+                raise AssembleError("conversion timed out during running headers")
+            label = chapter_pages.get(index - skip_pages) or book_title or ""
+            label = label.strip()
+            if not label:
+                continue
+            page = doc[index]
+            try:
+                blocks = [
+                    b for b in page.get_text("blocks")
+                    if "EPBPFANCHOR" not in str(b[4])
+                ]
+                content_top = min((b[1] for b in blocks), default=page.rect.height)
+            except Exception:
+                content_top = page.rect.height
+            if content_top < y + font_size:
+                continue
+            # Chapter opening pages already show the title in large type; a
+            # running head there would duplicate it (paper books omit it too).
+            heading_text, heading_size = _top_heading(page)
+            if (
+                heading_text
+                and heading_size >= base_font * 1.12
+                and _label_matches_heading(label, heading_text)
+            ):
+                continue
+            fontname = "china-s" if _CJK_RE.search(label) else "helv"
+            text = _fit_running_head(fitz, label, fontname, font_size, width_limit)
+            if not text:
+                continue
+            try:
+                text_width = fitz.get_text_length(
+                    text, fontname=fontname, fontsize=font_size
+                )
+            except Exception:
+                text_width = font_size * 0.55 * len(text)
+            x = (page.rect.width - text_width) / 2.0
+            try:
+                page.insert_text(
+                    (x, y),
+                    text,
+                    fontname=fontname,
+                    fontsize=font_size,
+                    color=(0.45, 0.45, 0.45),
+                )
+            except Exception:
+                continue
+            stamped += 1
+        if stamped:
+            doc.saveIncr()
+    finally:
+        doc.close()
+    return stamped
+
+
+def _dict_block_text(block) -> str:
+    """Plain text of a PyMuPDF ``get_text('dict')`` block."""
+    return " ".join(
+        "".join(span.get("text", "") for span in line.get("spans", []))
+        for line in block.get("lines", [])
+    )
+
+
+def _top_heading(page) -> tuple[str, float]:
+    """Return the text and font size of the topmost text block."""
+    try:
+        blocks = [
+            b for b in page.get_text("dict").get("blocks", [])
+            if b.get("lines") and "EPBPFANCHOR" not in _dict_block_text(b)
+        ]
+    except Exception:
+        return "", 0.0
+    if not blocks:
+        return "", 0.0
+    blocks.sort(key=lambda b: b["bbox"][1])
+    first = blocks[0]
+    text = _dict_block_text(first).strip()
+    size = max(
+        (float(span.get("size", 0.0) or 0.0)
+         for line in first["lines"] for span in line.get("spans", [])),
+        default=0.0,
+    )
+    return text, size
+
+
+def _label_matches_heading(label: str, heading: str) -> bool:
+    """True when a running-head label is already the visible heading."""
+    def squash(text: str) -> str:
+        return re.sub(r"\s+", "", text).lower()
+
+    wanted = squash(label)
+    return bool(wanted) and squash(heading).startswith(wanted)
+
+
+def _fit_running_head(fitz, label: str, fontname: str, font_size: float,
+                      limit_pt: float) -> str:
+    """Trim a running head with an ellipsis so it fits the text column."""
+
+    def measure(text: str) -> float:
+        try:
+            return fitz.get_text_length(text, fontname=fontname, fontsize=font_size)
+        except Exception:
+            return font_size * 0.55 * len(text)
+
+    if measure(label) <= limit_pt:
+        return label
+    trimmed = label
+    while trimmed and measure(trimmed + "…") > limit_pt:
+        trimmed = trimmed[:-1]
+    return (trimmed + "…") if trimmed else ""
+
+
 def assemble(
     raw_pdf_path: str,
     output_pdf_path: str,
@@ -568,6 +722,7 @@ def assemble(
     outline_source: str = "chromium",
     layout=None,
     page_numbers: bool = True,
+    running_headers: bool = True,
 ) -> int:
     """Post-process the msedge-produced PDF.
 
@@ -746,12 +901,13 @@ def assemble(
     # anchor-based outline when the CLI renderer produced no outline.
     check_timeout()
     page_offset = len(cover_pages) + len(toc_pages)
+    anchor_page_index = _build_page_index(page_texts)
     outline_count = 0
     if outline_source == "ncx" and toc_anchors:
         outline_count = _build_outline_from_toc(
             writer,
             toc_anchors,
-            _build_page_index(page_texts),
+            anchor_page_index,
             page_offset=page_offset,
         )
     else:
@@ -860,6 +1016,19 @@ def assemble(
     # cleanly, so we run the embed pass on the just-written file.
     check_timeout()
     intermediate = output_pdf_path + ".fonts.tmp"
+    chapter_pages: dict[int, str] = {}
+    if running_headers:
+        # Fallback titles are file names / manifest ids; never show those in a
+        # running head.  Those chapters simply inherit the book title.
+        chapter_titles = {
+            ch.id: ch.title
+            for ch in book.chapters
+            if not ch.is_cover_only and not ch.title_is_fallback
+        }
+        for anchor_id, page_index in anchor_page_index.items():
+            title = chapter_titles.get(anchor_id)
+            if title:
+                chapter_pages.setdefault(page_index, title)
     try:
         with open(intermediate, "wb") as f:
             writer.write(f)
@@ -867,6 +1036,15 @@ def assemble(
             _stamp_page_numbers(
                 intermediate,
                 skip_pages=len(cover_pages),
+                layout=layout,
+                deadline=deadline,
+            )
+        if running_headers and chapter_pages:
+            _stamp_running_headers(
+                intermediate,
+                book_title=book.title,
+                chapter_pages=chapter_pages,
+                skip_pages=page_offset,
                 layout=layout,
                 deadline=deadline,
             )

@@ -1,3 +1,29 @@
+# EPUB2PDF v1.1.6
+
+Reading-feel release: continuation pages now carry a quiet running head (book or
+chapter title), the last missing piece of "typeset book" furniture for the body
+pages.
+
+## Added
+
+- **Running headers.** A small grey running head is stamped in the top margin of
+  continuation pages, using the chapter title from the same anchors as the
+  bookmarks (falling back to the book title). Chapter-opening pages already show
+  their title in large type, so they are left clean; fixed-layout and scanned
+  pages whose content reaches the top edge are skipped automatically. Disable
+  with `--no-running-headers` or `running_headers=False`.
+
+## Verification
+
+- Unit + e2e suite green (real Edge). New fixture `longchapter.epub` (one
+  multi-page chapter) asserts that continuation pages carry the head, the
+  chapter opener and generated TOC page do not, and `--no-running-headers`
+  removes it everywhere. Unit tests cover book-title fallback, per-page chapter
+  labels and CJK titles.
+- Real books: Systematic Trading (330 pages) has running heads on 297 pages; the
+  33 bare pages are chapter openers. `Advances in Financial Machine Learning`
+  (fixed-layout scan) gets no heads because its content reaches the page edge.
+
 # EPUB2PDF v1.1.5
 
 Reading-feel release: body pages now carry page numbers, sparse bookmarks are

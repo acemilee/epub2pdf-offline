@@ -2,7 +2,7 @@
 
 A local Windows app for converting EPUB books to clean, readable PDF files.
 
-![Version](https://img.shields.io/badge/version-1.1.5-blue)
+![Version](https://img.shields.io/badge/version-1.1.6-blue)
 ![License](https://img.shields.io/badge/license-AGPL--3.0--or--later-green)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
@@ -40,6 +40,10 @@ The converter focuses on practical reading quality:
 - Page numbers are printed in the bottom margin of every page (the cover is
   left unnumbered), matching the generated TOC and bookmark destinations.
   `--no-page-numbers` disables them.
+- Running headers (the book or chapter title in small grey type) are stamped in
+  the top margin of continuation pages, the way a typeset book does it; chapter
+  opening pages and fixed-layout/scanned pages are left clean.
+  `--no-running-headers` disables them.
 - The PDF carries the EPUB language (`/Lang`) and asks viewers to show the book
   title in their window chrome, like a natively produced PDF.
 - Conversion runs locally and does not send your files anywhere.

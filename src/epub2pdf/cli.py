@@ -46,6 +46,7 @@ def convert(
     page_height_pt: float | None = None,
     font_scale: str = "auto",
     page_numbers: bool = True,
+    running_headers: bool = True,
 ) -> str:
     """Convert one .epub to .pdf. Returns the output path.
 
@@ -64,6 +65,8 @@ def convert(
         page_height_pt: Page height for auto layouts (default 9.25in = 666pt).
         font_scale: ``auto`` | ``compact`` | ``normal`` | ``loose``.
         page_numbers: Draw page numbers in the bottom margin (default True).
+        running_headers: Draw a small running head (book/chapter title) in
+            the top margin of body pages (default True).
     """
     def emit(stage, percent):
         if progress_cb:
@@ -209,6 +212,7 @@ def convert(
             outline_source=outline_source,
             layout=print_layout,
             page_numbers=page_numbers,
+            running_headers=running_headers,
         )
         timings["assemble"] = time.monotonic() - stage_started
         elapsed = time.time() - started
@@ -259,6 +263,9 @@ def main(argv: list[str] | None = None) -> int:
                     default="auto", help="body font size relative to the page width")
     ap.add_argument("--no-page-numbers", dest="page_numbers", action="store_false",
                     help="do not draw page numbers in the bottom margin")
+    ap.add_argument("--no-running-headers", dest="running_headers",
+                    action="store_false",
+                    help="do not stamp running headers into the top margin")
     args = ap.parse_args(argv)
 
     try:
@@ -274,6 +281,7 @@ def main(argv: list[str] | None = None) -> int:
             page_height_pt=args.page_height_pt,
             font_scale=args.font_scale,
             page_numbers=args.page_numbers,
+            running_headers=args.running_headers,
         )
         return 0
     except ConversionCancelled:

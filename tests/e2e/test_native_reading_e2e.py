@@ -55,3 +55,37 @@ def test_sparse_headings_book_gets_chapter_bookmarks(tmp_path):
     # Chromium only sees the single real <h1>; the assembler must add the rest.
     assert len(titles) >= 12, titles
     assert "Part 7: Chapter Title" in titles
+
+
+def top_words(page, limit: float = 40.0) -> list[str]:
+    """Visible words drawn above ``limit`` pt; ignores anchor markers."""
+    return [
+        w[4]
+        for w in page.get_text("words")
+        if w[1] < limit and "EPBPFANCHOR" not in w[4]
+    ]
+
+
+def test_body_pages_carry_running_headers(tmp_path):
+    pdf = convert_epub("longchapter.epub", tmp_path)
+    doc = pdf_doc(pdf)
+    try:
+        assert doc.page_count >= 4
+        headers = [" ".join(top_words(doc[i])) for i in range(doc.page_count)]
+    finally:
+        doc.close()
+    assert headers[0] == ""  # generated TOC page stays clean
+    # Index 1 is a title/nav page whose content sits at the very top; from
+    # index 2 on, only the stamped running head should appear there.
+    assert any("Long Chapter Fixture" in text for text in headers[2:]), headers
+    assert all("EPBPFANCHOR" not in text for text in headers)
+
+
+def test_running_headers_can_be_disabled(tmp_path):
+    pdf = convert_epub("longchapter.epub", tmp_path, running_headers=False)
+    doc = pdf_doc(pdf)
+    try:
+        tops = [" ".join(top_words(doc[i])) for i in range(2, doc.page_count)]
+    finally:
+        doc.close()
+    assert all(text == "" for text in tops), tops

@@ -465,3 +465,49 @@ def test_flatten_outline_titles_walks_nested_entries():
 
     items = [_Item("A"), [_Item("B"), _Item("C")]]
     assert assembler._flatten_outline_titles(items) == {"A", "B", "C"}
+
+
+def test_stamp_running_headers_uses_chapter_and_book_title(tmp_path):
+    fitz = pytest.importorskip("fitz")
+    doc = fitz.open()
+    for _ in range(3):
+        doc.new_page(width=400, height=600)
+    pdf = tmp_path / "headers.pdf"
+    doc.save(str(pdf))
+    doc.close()
+
+    stamped = assembler._stamp_running_headers(
+        str(pdf),
+        book_title="My Book",
+        chapter_pages={1: "Chapter One", 2: "Chapter One"},
+    )
+    assert stamped == 3
+
+    opened = fitz.open(str(pdf))
+    try:
+        texts = [opened[i].get_text() for i in range(3)]
+    finally:
+        opened.close()
+    assert "My Book" in texts[0]
+    assert "Chapter One" in texts[1]
+    assert "Chapter One" in texts[2]
+
+
+def test_stamp_running_headers_supports_cjk_titles(tmp_path):
+    fitz = pytest.importorskip("fitz")
+    doc = fitz.open()
+    doc.new_page(width=400, height=600)
+    pdf = tmp_path / "cjk.pdf"
+    doc.save(str(pdf))
+    doc.close()
+
+    stamped = assembler._stamp_running_headers(
+        str(pdf), book_title="测试驱动开发", chapter_pages={}
+    )
+    assert stamped == 1
+
+    opened = fitz.open(str(pdf))
+    try:
+        assert "测试驱动开发" in opened[0].get_text()
+    finally:
+        opened.close()

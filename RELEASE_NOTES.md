@@ -1,3 +1,34 @@
+# EPUB2PDF v1.2.1
+
+Reading-feel release: the generated contents page no longer lists itself, and
+running heads now mirror a printed book (chapter title on odd pages, book title
+on even pages).
+
+## Changed
+
+- **Generated contents page no longer lists itself.** Navigation documents often
+  start with a "Contents" / "目录" entry pointing at the nav page itself, which
+  produced a contents page whose first line was `Contents .... 10`. Those
+  self-referential entries are dropped from the generated TOC; the EPUB's own
+  contents page is still rendered in the body.
+- **Running heads are mirrored like a printed book.** Recto (odd) pages carry the
+  chapter title, verso (even) pages the book title. Previously only chapter
+  *start* pages were mapped to a chapter title — and those pages have no running
+  head — so the head was almost always the book title. The assembler now maps
+  every body page to its chapter.
+
+## Verification
+
+- 144 tests (34 e2e); e2e asserts recto/verso alternation and that the TOC title
+  word appears exactly once on the generated contents page.
+- *Systematic Trading*: 330 pages, TOC starts with `About the author 13` (no
+  self row); page 21 (odd) head `Introduction`, page 22 (even) `Systematic
+  Trading`.
+- *测试驱动开发入门、实战与进阶*: 284 pages, TOC starts with `版权信息 3`;
+  page 25 (odd) `前 言`, page 26 (even) book title.
+- Packaged Windows build (PyInstaller onedir) converted `basic.epub` and
+  `longchapter.epub`; GUI starts with a visible window.
+
 # EPUB2PDF v1.2.0
 
 Reading-feel release: technical books whose EPUB navigation is a flat list now

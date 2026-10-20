@@ -1,3 +1,41 @@
+# EPUB2PDF v1.1.9
+
+Reading-feel release: the body text finally behaves like a printed book when it
+comes to links. Link text no longer turns browser blue, internal references jump
+to the right page inside the PDF instead of pointing at temporary HTML files, and
+external links still open in a browser.
+
+## Changed
+
+- **Native-looking link text.** EPUB stylesheets often colour link text with
+  `span.URL` / `a { color: blue; text-decoration: underline }`. The print CSS now
+  forces `a`, `a:visited` and any element inside a link to inherit the body
+  colour and draw no decoration, so a cross-reference reads like ordinary prose.
+- **Internal references become real page links.** Two problems were fixed:
+  1. When a link pointed at another EPUB file (`chapter2.xhtml`), Chromium
+     exported a *file* link to the temporary HTML, which opened the source folder
+     in the PDF viewer. Before the print, such hrefs are flattened to their
+     `#fragment` (or the target chapter's leading anchor), so Chromium emits an
+     in-document link.
+  2. Chromium resolves same-document fragments through catalog `/Dests` entries
+     (named destinations with an explicit page). The assembler now maps those
+     names to the final page numbers (adding the cover + generated TOC offset),
+     so a reference such as "see the glossary" jumps to the glossary page instead
+     of being dropped as a dead link. Named destinations without a page (URI
+     actions) are left untouched.
+
+## Verification
+
+- New fixture `links.epub` covers styled link text, same-file fragments,
+  cross-file chapter references and one external HTTP link; unit + e2e tests
+  assert no `…file://` link survives, styled link text keeps its colour, and the
+  in-PDF link targets the expected 1-based page (cross-file links honour the
+  page offset).
+- Real book *Systematic Trading* (330 pages): internal page links went from 137
+  to **1071**, file links **0**, unresolved named links **0**, blue link-coloured
+  spans **276 → 0**; the 15 external URI links are preserved. Full suite
+  **139 passed** (32 e2e).
+
 # EPUB2PDF v1.1.8
 
 Reading-feel release: long chapter titles in the generated table of contents now

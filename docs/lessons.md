@@ -3,6 +3,13 @@
 > 本文件保存根因、排查方法和踩坑细节；HANDOFF.md 只保留指针。
 > 按时间倒序，每条注明日期与版本/基线。
 
+## 2026-10-20 · v1.1.9：链接要“像书”，就要同时改绘制层与目标层
+
+- **链接文字变蓝的真实来源**：EPUB 里常见 `span.URL { color: blue; text-decoration: underline }` 或 `a { color:#0000ff }`。只覆盖 `a` 不够——InDesign/Word 导出常把颜色放在链接内部的 `<span>` 上，所以打印 CSS 必须同时写 `a, a:visited { ... }` 和 `a * { color: inherit !important; text-decoration: none !important; }`。改完要在最终 PDF 上按 span 颜色统计验证（*Systematic Trading* 蓝色 span 276 → 0）。
+- **跨文件 href 会变成 file 链接**：EPUB 正文里 `href="chapter2.xhtml#note"` 在 Chromium 打印后是“打开临时 HTML 文件”的 file 链接（kind 3），在 PDF 阅读器里会弹文件选择器。必须在生成 HTML 前把跨文件 href 归一为 `#fragment`：能解析到目标章时用目标章首锚点（`_chapter_link_map`），否则降级为纯 `#fragment`。保留 `http(s)`/`mailto` 不动。
+- **同文件 `#fragment` 的页码不在锚点索引里**：Chromium 把 `<a href="#glossary">` 解析成 catalog `/Dests` 的命名目标（`/D [page /XYZ ...]` 或 `/Page` 字典），名字通常是 `glossary` 而不是 `EPBPFANCHOR_*`。原先只按锚点索引匹配，就会把所有交叉引用当死链删掉。正确做法：先从 raw PDF 的 `/Dests` 建 `{名称: 原始页号}`，最终页 = 原始页 + 封面/目录偏移；pypdf 对这种项可能返回 `Destination` 对象（含 `/D` 数组或 `/Page`），两种形态都要处理。实测 *Systematic Trading*：页内链接 137 → **1071**，file 链接 934 → 0。
+- **验证口径**：链接是否“原生”要同时看 ①可见层（文字颜色/下划线）②注释层（kind 4 页内链接 vs kind 3 file 链接 vs kind 2 URI）③目标页码（抽查引用跳转页文本是否包含目标词）。只看注释数量会被“死链被删光”误导。
+
 ## 2026-10-20 · v1.1.8：目录页折行要“先量后画”，书签标题要防 Chromium 重复
 
 - **固定行高装不下长标题**：目录页原来每行固定 20pt、`nowrap + ellipsis`，长章名被截成 `…`。正确做法是**量测式布局**：先用字符宽度估算（CJK/全角按 1em，ASCII 按约 0.55em，再留 5% 安全余量）把标题分成 1–2 行，按行数给出该行高度，再绝对定位；CSS 侧用 `-webkit-line-clamp: 2` 作为最终兜底，链接矩形按整行高度画。先量后画保证“行高、行距、页码/链接”三者一致，不会出现文字折行压到下一行的经典事故。

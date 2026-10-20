@@ -458,6 +458,28 @@ def test_rewrite_relative_paths_clamps_inline_px_widths():
     assert "width:min(600px, 100%)" in out
     assert 'width="600px"' not in out
 
+def test_rewrite_internal_links_to_chapter_fragments():
+    html = (
+        '<p><a href="chapter2.xhtml">two</a>'
+        '<a href="chapter2.xhtml#note">note</a>'
+        '<a href="https://example.com/">web</a>'
+        '<a href="#local">local</a></p>'
+    )
+    out = normalizer._rewrite_relative_paths(
+        html,
+        "Text/chapter1.xhtml",
+        "assets",
+        {},
+        {},
+        chapter_targets={"Text/chapter2.xhtml": "chapter_2"},
+    )
+
+    assert 'href="#chapter_2"' in out
+    assert 'href="#note"' in out
+    assert 'href="https://example.com/"' in out
+    assert 'href="#local"' in out
+
+
 def test_html_lang_uses_epub_language():
     html = normalizer._html5_wrap("<p>x</p>", "", "T", None, language="zh-CN")
     assert '<html lang="zh-CN">' in html

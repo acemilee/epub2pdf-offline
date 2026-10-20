@@ -138,11 +138,17 @@ pre {
 """
 
 _POST_EPUB_CSS_TEMPLATE = """
-/* Links are not clickable in the printed PDF. EPUB stylesheets (and the UA
-   default for <a>) would otherwise keep the HTML link underline + link color,
-   which makes generated TOC/nav pages look like a web page instead of print.
-   This rule is emitted after the inlined EPUB CSS on purpose. */
+/* Links should not look like web links in the printed PDF. EPUB stylesheets
+   (and the UA default for <a>) would otherwise keep the HTML link underline +
+   link color, which makes generated TOC/nav pages look like a web page instead
+   of print.  InDesign/Word exports also wrap the link text in a coloured
+   underlined span (e.g. span.URL), so the descendant rule is required too.
+   These rules are emitted after the inlined EPUB CSS on purpose. */
 a, a:link, a:visited, a:hover, a:active {
+    color: inherit !important;
+    text-decoration: none !important;
+}
+a * {
     color: inherit !important;
     text-decoration: none !important;
 }
@@ -521,6 +527,34 @@ def _inject_fragment_anchors(
     return body_inner, failed
 
 
+def _rewrite_internal_link(
+    href: str, chapter_dir: str, chapter_targets: dict[str, str]
+) -> str | None:
+    """Turn a cross-chapter link into an in-document ``#fragment`` link.
+
+    The normalizer flattens every chapter into a single HTML document, so a
+    relative ``chapter2.xhtml`` href would otherwise be printed as a *file*
+    link pointing at a temporary path.  Mapping it to the chapter section's
+    ``id`` keeps the click working inside the PDF.
+    """
+    value = (href or "").strip()
+    if not value or value.startswith("#"):
+        return None
+    if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", value) or value.startswith("//"):
+        return None
+    path, _, fragment = value.partition("#")
+    if not path:
+        return None
+    target = (
+        chapter_targets.get(_resolve_href(chapter_dir, path))
+        or chapter_targets.get(_clean_href(path))
+        or chapter_targets.get(_safe_basename(path))
+    )
+    if not target:
+        return None
+    return f"#{fragment}" if fragment else f"#{target}"
+
+
 def _rewrite_relative_paths(
     chapter_html: str,
     chapter_dir: str,
@@ -528,6 +562,7 @@ def _rewrite_relative_paths(
     image_map: dict[str, str] | None = None,
     font_map: dict[str, str] | None = None,
     layout: Layout | None = None,
+    chapter_targets: dict[str, str] | None = None,
 ) -> str:
     """Rewrite relative URLs in the chapter HTML so they resolve to the
     assets directory we will write next to the index.html.
@@ -580,8 +615,17 @@ def _rewrite_relative_paths(
                 continue
             img.set(attr_name, mapped_asset(src))
 
-    # <a> links: leave as-is (PDF won't follow them); but rewrite href to absolute-ish
-    # We skip rewriting <a> since the PDF won't be clickable for internal refs in MVP.
+    # <a> links: the whole book becomes one document, so rewrite relative
+    # cross-chapter hrefs into in-document fragments (see
+    # ``_rewrite_internal_link``); otherwise Chromium emits links to
+    # temporary .xhtml files instead of PDF page destinations.
+    for anchor in [el for el in root.iter() if _local_name(el) == "a"]:
+        href = anchor.get("href")
+        if not href:
+            continue
+        rewritten = _rewrite_internal_link(href, chapter_dir, chapter_targets or {})
+        if rewritten is not None:
+            anchor.set("href", rewritten)
 
     # <link rel="stylesheet" href="...">: remove (we inline CSS separately)
     for link in [el for el in root.iter() if _local_name(el) == "link"]:
@@ -959,6 +1003,14 @@ def normalize(book: EpubBook, work_dir: str, layout: Layout | None = None) -> No
     font_map = asset_maps.get("fonts", {})
     toc_anchors, toc_by_chapter, skipped_toc = _build_toc_anchors(book)
 
+    # Cross-chapter hrefs become in-document fragment links.
+    chapter_targets: dict[str, str] = {}
+    for chapter in book.chapters:
+        chapter_targets[_normalize_href_path(chapter.href)] = chapter.id
+        basename = _safe_basename(chapter.href)
+        if basename and basename not in chapter_targets:
+            chapter_targets[basename] = chapter.id
+
     # 2. Build chapter HTML
     body_parts: list[str] = []
     skipped_cover = 0
@@ -970,7 +1022,13 @@ def normalize(book: EpubBook, work_dir: str, layout: Layout | None = None) -> No
         # Extract just the body / inner content if lxml could parse it
         body_inner = _extract_body_inner(ch.content_html)
         body_inner = _rewrite_relative_paths(
-            body_inner, ch.href, "assets", image_map, font_map, layout
+            body_inner,
+            ch.href,
+            "assets",
+            image_map,
+            font_map,
+            layout,
+            chapter_targets,
         )
         body_inner = _clean_text_artifacts(body_inner)
         chapter_title = _clean_text_artifacts(ch.title)

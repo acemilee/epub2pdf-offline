@@ -506,6 +506,51 @@ def build_longtoc() -> Path:
     return _write(book, "longtoc.epub")
 
 
+LINKS_CSS = """
+body { font-family: "Segoe UI", sans-serif; }
+a, a:link, a:visited { color: #0000ff; text-decoration: underline; }
+span.URL { color: #0000ff; text-decoration: underline; }
+"""
+
+
+def build_links() -> Path:
+    """Cross-reference links wrapped in a coloured InDesign-style span."""
+    book = _new_book("fixture-links", "Links Fixture")
+    _add_style(book, LINKS_CSS)
+    contents = [
+        (
+            "Chapter One: Links",
+            "<p>See <a href=\"links2.xhtml\"><span class=\"URL\">Chapter "
+            "Two</span></a> for the continuation, and the <a "
+            "href=\"links3.xhtml\"><span class=\"URL\">appendix</span></a> "
+            "for details.</p><p>An <a href=\"https://example.com/\"><span "
+            "class=\"URL\">external source</span></a> is also referenced "
+            "here.</p>",
+        ),
+        (
+            "Chapter Two: Continuation",
+            "<p>Body text for chapter two, long enough to fill a line of the "
+            "page and to prove that normal paragraphs keep their ink.</p>",
+        ),
+        ("Appendix", "<p>Appendix body text.</p>"),
+    ]
+    chapters = []
+    for index, (title, body) in enumerate(contents, start=1):
+        chapter = epub.EpubHtml(
+            title=title, file_name=f"links{index}.xhtml", lang="en"
+        )
+        chapter.content = (
+            f"<html><head><title>{title}</title></head><body>"
+            f"<h1>{title}</h1>{body}</body></html>"
+        )
+        book.add_item(chapter)
+        chapters.append(chapter)
+    book.toc = [epub.Link(ch.file_name, ch.title, ch.file_name) for ch in chapters]
+    book.spine = ["nav", *chapters]
+    _add_ncx_nav(book)
+    return _write(book, "links.epub")
+
+
 def main() -> None:
     FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
     for builder in (
@@ -520,6 +565,7 @@ def main() -> None:
         build_partialnested,
         build_longchapter,
         build_longtoc,
+        build_links,
     ):
         path = builder()
         print(f"wrote {path} ({path.stat().st_size} bytes)")

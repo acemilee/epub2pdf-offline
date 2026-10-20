@@ -234,6 +234,134 @@ def _page_texts(reader: PdfReader, pdf_path: str | None = None) -> list[str]:
     return texts
 
 
+def _named_destination_name(dest) -> Optional[str]:
+    """Return a plain destination name, or None when *dest* is not one."""
+    if isinstance(dest, NameObject):
+        return str(dest).lstrip("/")
+    if isinstance(dest, str):
+        return dest.lstrip("/") or None
+    if isinstance(dest, bytes):
+        try:
+            return dest.decode("latin-1").lstrip("/") or None
+        except Exception:
+            return None
+    return None
+
+
+def _raw_named_destinations(reader: PdfReader) -> dict[str, int]:
+    """Map Chromium's named destinations (``/Dests``) to page indexes.
+
+    Chromium resolves in-document ``#fragment`` links itself and records the
+    result in a catalog ``/Dests`` name tree.  ``pypdf`` drops that tree when
+    pages are copied into a new writer, so read it here while the raw reader is
+    still available; this keeps cross references pointing at the exact page
+    (not merely the chapter start).
+    """
+    page_numbers: dict[tuple[int, int], int] = {}
+    for index, page in enumerate(reader.pages):
+        ref = getattr(page, "indirect_reference", None)
+        if ref is not None:
+            page_numbers[(ref.idnum, ref.generation)] = index
+    try:
+        named = reader.named_destinations
+    except Exception:
+        return {}
+    result: dict[str, int] = {}
+    for name, destination in named.items():
+        try:
+            destination = destination.get_object()
+            if isinstance(destination, DictionaryObject) and "/D" in destination:
+                destination = destination["/D"].get_object()
+            if isinstance(destination, (list, ArrayObject)) and destination:
+                target = destination[0]
+            elif isinstance(destination, DictionaryObject) and "/Page" in destination:
+                target = destination["/Page"]
+            else:
+                continue
+            if hasattr(target, "get_object"):
+                target = target.get_object()
+            ref = getattr(target, "indirect_reference", None)
+            if ref is None:
+                continue
+            page_index = page_numbers.get((ref.idnum, ref.generation))
+            if page_index is not None:
+                result[str(name).lstrip("/")] = page_index
+        except Exception:
+            continue
+    return result
+
+
+def _fix_named_link_destinations(
+    writer: PdfWriter,
+    anchor_page_index: dict[str, int],
+    page_offset: int,
+    named_destinations: dict[str, int] | None = None,
+) -> int:
+    """Resolve Chromium's dangling named link destinations to page refs.
+
+    Chromium emits in-document links (``href="#chapter_2"`` or any
+    ``#fragment``) as named destinations.  The anchor index covers chapter and
+    TOC anchors; ``named_destinations`` (from the raw PDF's ``/Dests`` tree)
+    covers every other resolved fragment.  Links whose target cannot be
+    resolved are dropped instead of shipping a dead annotation.
+    """
+    named_destinations = named_destinations or {}
+    fixed = 0
+    total_pages = len(writer.pages)
+    for page in writer.pages:
+        if not hasattr(page, "get"):
+            continue
+        raw = page.get(NameObject("/Annots"))
+        if raw is None:
+            continue
+        annots = raw.get_object() if hasattr(raw, "get_object") else raw
+        keep = []
+        for element in annots:
+            try:
+                annot = element.get_object()
+            except Exception:
+                continue
+            if annot.get("/Subtype") != "/Link":
+                keep.append(element)
+                continue
+            name = None
+            holder = None
+            if "/Dest" in annot:
+                name = _named_destination_name(annot["/Dest"])
+                holder = annot
+            if name is None:
+                action = annot.get("/A")
+                if action is not None:
+                    action = action.get_object()
+                    if action.get("/S") == "/GoTo":
+                        name = _named_destination_name(action.get("/D"))
+                        holder = action
+            if name is None:
+                keep.append(element)
+                continue
+            target = anchor_page_index.get(name)
+            if target is None:
+                target = named_destinations.get(name)
+            if target is None:
+                # Dead named destination (fragment id we never indexed):
+                # dropping the annotation is better than a broken link.
+                continue
+            target_index = target + page_offset
+            if not (0 <= target_index < total_pages):
+                continue
+            destination = ArrayObject(
+                [writer.pages[target_index].indirect_reference, NameObject("/Fit")]
+            )
+            if holder is annot:
+                annot[NameObject("/Dest")] = destination
+            else:
+                holder[NameObject("/D")] = destination
+            keep.append(element)
+            fixed += 1
+        page[NameObject("/Annots")] = ArrayObject(keep)
+    return fixed
+
+
 def _build_page_index(page_texts: list[str]) -> dict[str, int]:
     """One pass over all page texts: ``{anchor_id: first_page_index}``.
 
@@ -924,13 +1052,21 @@ def assemble(
     for p in reader.pages:
         writer.add_page(p)
 
+    page_offset = len(cover_pages) + len(toc_pages)
+    anchor_page_index = _build_page_index(page_texts)
+    # Chromium emits in-document links as named destinations; turn them into
+    # real page links now that the raw page numbers are known.
+    named_destinations = _raw_named_destinations(reader)
+    check_timeout()
+    _fix_named_link_destinations(
+        writer, anchor_page_index, page_offset, named_destinations
+    )
+
     # --- Outline (bookmarks) ---
     # Prefer the outline Chromium generated from the document headings; it
     # keeps heading levels and page numbers accurate. Fall back to the flat
     # anchor-based outline when the CLI renderer produced no outline.
     check_timeout()
-    page_offset = len(cover_pages) + len(toc_pages)
-    anchor_page_index = _build_page_index(page_texts)
     outline_count = 0
     rich_navigation = bool(toc_anchors) and (
         outline_source == "ncx" or _outline_is_sparse(reader, book)

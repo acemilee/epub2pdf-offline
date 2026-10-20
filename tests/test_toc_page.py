@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import re
 
+import pytest
+
 from epub2pdf.core.normalizer import TocAnchor
 from epub2pdf.core import toc_page
 
@@ -105,3 +107,60 @@ def test_rows_beyond_first_page_are_positioned_on_their_own_page():
     first_page, first_top = toc_page._row_geometry(0, per_page, A4_HEIGHT_PT)
     assert first_page == 0
     assert top == first_top
+
+
+def test_long_title_grows_its_row_to_two_lines():
+    long_title = "Chapter One: " + "A Very Long Chapter Title " * 6
+    entries = [
+        _anchor("EPBPFTOC_1", long_title, 0),
+        _anchor("EPBPFTOC_2", "Chapter Two", 0),
+    ]
+    rows, _pages = toc_page._layout_rows(
+        entries,
+        page_width_pt=A4_WIDTH_PT,
+        page_height_pt=A4_HEIGHT_PT,
+    )
+    assert rows[0].lines == 2
+    assert rows[0].height_pt == pytest.approx(2 * toc_page.ROW_HEIGHT_PT)
+    # The following row starts after the grown row, not on top of it.
+    assert rows[1].top_pt == pytest.approx(rows[0].top_pt + rows[0].height_pt)
+    html = toc_page.build_toc_html(
+        entries,
+        {"EPBPFTOC_1": 5, "EPBPFTOC_2": 9},
+        page_width_pt=A4_WIDTH_PT,
+        page_height_pt=A4_HEIGHT_PT,
+        title="Contents",
+    )
+    assert "-webkit-line-clamp:2" in html
+    assert "text-overflow: ellipsis" not in html
+
+
+def test_short_titles_keep_one_line_per_row():
+    entries = [_anchor(f"EPBPFTOC_{i}", f"Chapter {i}", 0) for i in range(5)]
+    rows, _pages = toc_page._layout_rows(
+        entries,
+        page_width_pt=A4_WIDTH_PT,
+        page_height_pt=A4_HEIGHT_PT,
+    )
+    assert [row.lines for row in rows] == [1, 1, 1, 1, 1]
+    assert all(row.height_pt == toc_page.ROW_HEIGHT_PT for row in rows)
+
+
+def test_long_titles_still_paginate_within_the_bottom_margin():
+    entries = [
+        _anchor("EPBPFTOC_" + str(i), "A Very Long Chapter Title " * 6, 0)
+        for i in range(60)
+    ]
+    rows, pages = toc_page._layout_rows(
+        entries,
+        page_width_pt=A4_WIDTH_PT,
+        page_height_pt=A4_HEIGHT_PT,
+    )
+    assert pages > 1
+    bottom_limit = A4_HEIGHT_PT - toc_page._mm(toc_page.BOTTOM_MARGIN_MM)
+    for row in rows:
+        assert row.top_pt + row.height_pt <= bottom_limit + 0.01
+    # Rows never overlap each other on the same page.
+    for first, second in zip(rows, rows[1:]):
+        if first.page_index == second.page_index:
+            assert second.top_pt >= first.top_pt + first.height_pt - 0.01

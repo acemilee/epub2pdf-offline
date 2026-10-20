@@ -300,19 +300,34 @@ def _validate_render_integrity(
 
 
 def _dedupe_title(title: str) -> str:
-    """Collapse an exactly repeated title (``FooFoo`` -> ``Foo``).
+    """Collapse repeated leading fragments Chromium adds to heading text.
 
-    Chromium's ``generateDocumentOutline`` emits the heading text twice for some
-    paginated layouts (observed with ``page-break-before`` chapters).  The
-    repetition is always exact, so collapsing an exact doubled string restores
-    the intended bookmark title.
+    Chromium's ``generateDocumentOutline`` sometimes repeats part of the heading
+    text: an exact doubled title (``FooFoo``) on forced page breaks, or the first
+    rendered line repeated before the rest for a heading that wrapped
+    (``<first line><first line><remaining lines>``).  Collapsing the largest
+    repeated prefix restores the intended bookmark title.
     """
-    length = len(title)
-    if length >= 4 and length % 2 == 0:
-        half = length // 2
-        if title[:half] == title[half:]:
-            return title[:half]
-    return title
+    text = title
+    for _ in range(3):
+        length = len(text)
+        best = None
+        for size in range(length // 2, 3, -1):
+            if text[:size] == text[size : 2 * size]:
+                remainder = text[2 * size :]
+                if remainder:
+                    # Chromium joins the repeated line and the next one without
+                    # a space (``... Does Not`` + ``Fit ...``), so restore it.
+                    left, right = text[size - 1], remainder[0]
+                    joiner = "" if left.isspace() or right.isspace() else " "
+                    best = text[:size] + joiner + remainder
+                else:
+                    best = text[:size]
+                break
+        if best is None or best == text:
+            break
+        text = best
+    return text
 
 
 def _copy_outline(

@@ -476,6 +476,36 @@ def build_partialnested() -> Path:
     return _write(book, "partialnested.epub")
 
 
+def build_longtoc() -> Path:
+    """Chapter titles long enough to need a second line in the TOC."""
+    book = _new_book("fixture-longtoc", "Long TOC Fixture")
+    _add_style(book)
+    titles = [
+        (
+            "Chapter One: A Very Long Chapter Title That Does Not Fit "
+            "On A Single Table Of Contents Line And Must Wrap"
+        ),
+        "Chapter Two: Short",
+        "Chapter Three: Also Short",
+    ]
+    chapters = []
+    for index, title in enumerate(titles, start=1):
+        chapter = epub.EpubHtml(
+            title=title, file_name=f"longtoc{index}.xhtml", lang="en"
+        )
+        chapter.content = (
+            f"<html><head><title>{title}</title></head><body>"
+            f"<h1>{title}</h1><p>Body paragraph for {title}.</p>"
+            "</body></html>"
+        )
+        book.add_item(chapter)
+        chapters.append(chapter)
+    book.toc = [epub.Link(ch.file_name, ch.title, ch.file_name) for ch in chapters]
+    book.spine = ["nav", *chapters]
+    _add_ncx_nav(book)
+    return _write(book, "longtoc.epub")
+
+
 def main() -> None:
     FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
     for builder in (
@@ -489,6 +519,7 @@ def main() -> None:
         build_partialheads,
         build_partialnested,
         build_longchapter,
+        build_longtoc,
     ):
         path = builder()
         print(f"wrote {path} ({path.stat().st_size} bytes)")

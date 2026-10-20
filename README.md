@@ -2,7 +2,7 @@
 
 A local Windows app for converting EPUB books to clean, readable PDF files.
 
-![Version](https://img.shields.io/badge/version-1.1.7-blue)
+![Version](https://img.shields.io/badge/version-1.1.8-blue)
 ![License](https://img.shields.io/badge/license-AGPL--3.0--or--later-green)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
@@ -21,7 +21,8 @@ The converter focuses on practical reading quality:
   searchable on other machines.
 - A printable table of contents page is generated for every book, with page
   numbers that match the final PDF and clickable rows. The generated page draws
-  no rules or dot leaders at all, so entries read like a native book TOC.
+  no rules or dot leaders at all, so entries read like a native book TOC; long
+  titles wrap onto a second line instead of being cut with an ellipsis.
 - The page size follows the book: the cover's aspect ratio sets the trim size
   (about 9.25in tall), cover art is printed full-bleed, and the body type,
   margins and table of contents scale with the page width. Choose A4 in the app

@@ -7,8 +7,8 @@
 
 | 项 | 值 |
 | --- | --- |
-| 当前版本 | **v1.1.7**（2026-10-20，原生阅读感：稀疏书签用 EPUB 导航补全成多级；基线 v1.1.6 = 页眉 running head；v1.1.5 = 页脚页码 + 稀疏书签补全 + PDF 语言元数据；v1.1.4 = 目录无横线 + 字号 9pt 下限 + 绝对 px 适配；v1.1.2 = auto 开本 + GUI 手动开始 + 容错读 EPUB） |
-| 代码基线 | 发布提交见 §9（tag `v1.1.7`）；上一版 `v1.1.6` = `f2b498b`，`v1.1.5` = `5a85bd3`，`v1.1.4` = `13eca87`，`v1.1.3` = `7302e24`，`v1.1.2` = `8d86e0d`，`v1.1.1` = `512806f`，`v1.1.0` = `0b04e48` |
+| 当前版本 | **v1.1.8**（2026-10-20，原生阅读感：目录页超长标题改为两行折行、行高与链接自适应；基线 v1.1.7 = 稀疏书签用 EPUB 导航补全成多级；v1.1.6 = 页眉 running head；v1.1.5 = 页脚页码 + 稀疏书签补全 + PDF 语言元数据；v1.1.4 = 目录无横线 + 字号 9pt 下限 + 绝对 px 适配；v1.1.2 = auto 开本 + GUI 手动开始 + 容错读 EPUB） |
+| 代码基线 | 发布提交见 §9（tag `v1.1.8`）；上一版 `v1.1.6` = `f2b498b`，`v1.1.5` = `5a85bd3`，`v1.1.4` = `13eca87`，`v1.1.3` = `7302e24`，`v1.1.2` = `8d86e0d`，`v1.1.1` = `512806f`，`v1.1.0` = `0b04e48` |
 | 运行环境 | Windows 10/11 + Microsoft Edge（本机 **155.0.4283.62**） |
 | 开发解释器 | `F:\python313\python.exe`（3.13.9，依赖齐全）；**仓库内没有可用的 `.venv`** |
 | 当前计划 | [docs/plans/v1.1.2.md](docs/plans/v1.1.2.md)（v0.2，**已执行完成**）；上一版 [docs/plans/v1.1.1.md](docs/plans/v1.1.1.md)（v0.2，已完成） |
@@ -19,7 +19,7 @@
 - CLI：`python -m epub2pdf --cli`、`run.py`；新增 `--page-size {auto,A4,Letter,B5,6x9,7x10}`、`--page-height-pt`、`--font-scale {auto,compact,normal,loose}`、`--no-page-numbers`、`--no-running-headers`。
 - **默认 auto 开本**：页面比例取封面图比例（误差实测 ≤ 0.09%），页高默认 9.25in（666pt），正文字号 = clamp(正文宽/40, 9, 13)pt，行距中文 1.55 / 西文 1.40，页边距按页宽比例（左右 11.5%、上 8%、下 9%）；封面满版 `object-fit:cover`。比例超出 0.58–0.86 或无封面 → A4 + WARNING。
 - `--page-size A4` 保持 v1.1.1 几何（595.28×841.89pt、18/16/20/16mm、11pt、1.5 行距、封面 contain），供对照回归。
-- **生成目录页**：封面后插入带最终页码的目录页，每行可点击；行高/字号/缩进/边距随开本缩放。**v1.1.4 起目录页不再绘制任何横线/点线**：行为纯 flex（标题单行省略号 + 右对齐页码），用户要求的“原生感”以无装饰线实现。
+- **生成目录页**：封面后插入带最终页码的目录页，每行可点击；行高/字号/缩进/边距随开本缩放。**v1.1.4 起目录页不再绘制任何横线/点线**：行为纯 flex（右对齐页码）。**v1.1.8 起超长标题最多折两行**（行高、行距、链接矩形随行数增长；仅超过两行才在第二行截断），不再用省略号截掉长标题。
 - **字号归一化（v1.1.4）**：EPUB CSS（外部样式表与内联 `<style>`）中任何解析后小于 **9pt** 的 `font-size` 都改写为绝对 `9pt`，覆盖嵌套 em、`%`、`rem`、`px` 与 InDesign/Word 导出的偏小类；大于等于 9pt 的标题/展示字号保持原比例。
 - **绝对 px 适配（v1.1.4）**：`width`/`max-width`/`min-width` 的 px 声明若宽于当前文本列，改写为 `min(Npx, 100%)`（`min-width` 置 0），覆盖样式表与内联 `style="..."`；窄 auto 页不再被 500–600px 固定容器撑破。
 - **PDF 书签**：默认 CDP `generateDocumentOutline` 多级书签；`--outline-source ncx` 为备选（层级较浅）。**v1.1.7 起**：若 Chromium outline 稀疏（< max(3, 非封面章数×35%)）且存在 EPUB 导航锚点，改用 **EPUB 导航**生成完整层级书签（*Advances in Financial Machine Learning* 由 6 条增至 **244 条**）；导航页仍逐级保留。无导航锚点时退回章节级扁平补全（v1.1.5 行为）。
@@ -88,6 +88,14 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 
 ## 4. 变更清单
 
+### v1.1.8（2026-10-20）
+
+- `toc_page.py`：目录行改为**量测行高**布局——`MAX_TITLE_LINES = 2`；新增 `_TocRow(entry_index, page_index, top_pt, height_pt, lines)`、`_char_width_pt`、`_text_width_pt`（5% 安全余量）、`_title_lines`、`_layout_rows`；`build_toc_html` 用行几何 + CSS `-webkit-line-clamp:2` / `overflow-wrap:anywhere`；`_link_rect` 覆盖整行高度；`render_toc_pdf` 以行布局页数与链接。
+- `assembler.py`：`_dedupe_title` 改为“折叠最长重复前缀 + 在拼接处补回 Chromium 吞掉的空格”，修掉折行标题在书签里出现 `...Does NotChapter One: ...Fit On...` 的重复。
+- 测试：`tests/test_toc_page.py` 增 3 项（两行 40pt、短标题 24pt、60 条长标题分页不越过下边距），fixture `longtoc.epub`，e2e `test_toc_wrapping_e2e.py`（目录页无 `…`、全文含完整长标题、书签标题完整）。全量 **136 项**（e2e 31）。
+- 真实书：*Systematic Trading* 330 页、137 条目录、5 页目录页、`…` 计数 0；330pt 窄页探针下 5 条长标题折成两行且不与相邻行重叠（`output/v118_wrap_p3.png`）。
+- 版本 `1.1.8`；README/RELEASE_NOTES/HANDOFF/lessons 更新。
+
 ### v1.1.7（2026-10-20）
 
 - `assembler.py`：新增 `_outline_is_sparse(raw_reader, book)`；在写书签前先判断——若 Chromium outline 稀疏且存在 `toc_anchors`，直接用 `_build_outline_from_toc` 生成 **EPUB 导航的完整层级书签**（不再只补扁平章节）；导航解析失败时才退回 `_copy_outline` / `_add_outline` / `_supplement_outline`。`--outline-source ncx` 行为不变。
@@ -145,6 +153,11 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 - 新增 `toc_page.py`（生成目录页、可点击行、两遍稳定页码）；`TocAnchor`/`NormalizeResult`；NCX 备选；封面 magic 嗅探；嵌套导航 tuple 递归；GUI 打开输出目录；PyMuPDF 文本抽取快路径；`--outline-source`。
 
 ## 5. 验证证据
+
+**v1.1.8（2026-10-20，本机实测）**
+- 全量 `pytest` → **136 passed in 117.20s**（e2e 31）。
+- 目录折行：`toc_page._layout_rows` 对 330pt 窄页把 5 条长标题判为 2 行；`render_toc_pdf` 输出 5 页、无行重叠（截图 `output/v118_wrap_p3.png`）；*Systematic Trading* 实转 330 页、目录页 5 页、`…` 0。
+- 书签标题：Chromium 对折行标题会输出重复首行（`...Does NotChapter One...Fit On...`），`_dedupe_title` 折叠后书签为完整单一标题，e2e 断言通过。
 
 **v1.1.7（2026-10-20，本机实测）**
 
@@ -256,4 +269,5 @@ F:\python313\python.exe -m PyInstaller --noconfirm --clean EpubToPdf.spec
 | 2026-10-20 | v1.1.4 | 目录页彻底无横线；字号归一化（9pt 下限）；绝对 px 容器 clamp；120 项测试（e2e 24）；发布提交 `13eca87` / tag `v1.1.4` |
 | 2026-10-20 | v1.1.5 | 页脚页码（`--no-page-numbers` 可关）；稀疏书签用章节锚点补全；`/Lang` + `DisplayDocTitle`；`<html lang>` 取书语言；127 项测试（e2e 27）；发布提交 `5a85bd3` / tag `v1.1.5` |
 | 2026-10-20 | v1.1.6 | 页眉 running head（章名/书名、CJK、章首页与扫描页跳过，`--no-running-headers` 可关）；131 项测试（e2e 29）；发布提交 `f2b498b` / tag `v1.1.6` |
+| 2026-10-20 | v1.1.8 | 目录页超长标题两行折行（行高/链接自适应、去省略号）；`longtoc.epub` + 单测/e2e；136 项测试（e2e 31）；发布提交见下轮补记 / tag `v1.1.8` |
 | 2026-10-20 | v1.1.7 | 稀疏书签改用 EPUB 导航补全成完整层级（Advances 6→244 条）；`partialnested.epub` fixture + e2e；132 项测试（e2e 30）；发布提交 `caf0126` / tag `v1.1.7` |

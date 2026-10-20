@@ -1,3 +1,29 @@
+# EPUB2PDF v1.1.8
+
+Reading-feel release: long chapter titles in the generated table of contents now
+wrap onto a second line (with the row, leader-free spacing, page number and
+clickable link all growing with it) instead of being cut off with an ellipsis.
+
+## Changed
+
+- **Two-line TOC entries.** Rows are laid out with measured heights: titles are
+  estimated from the current font size and wrapped by CSS (`-webkit-line-clamp:
+  2`), so short entries keep the tight rhythm while long ones gain a second
+  line. Page numbers stay right-aligned and the link rectangle covers both
+  lines. Bookmark titles are unaffected (they are now cleaned of the duplicated
+  first line Chromium emits for wrapped headings).
+- TOC ellipsis (`…`) is gone; a title longer than two lines is clamped at line
+  two rather than mid-glyph.
+
+## Verification
+
+- Unit tests cover measured widths, 1-line vs 2-line heights, row spacing and
+  pagination; e2e asserts a long title appears in full (no `…`) and its PDF
+  bookmark keeps the complete title.
+- Real book *Systematic Trading* (137 entries, 5 generated TOC pages, 330
+  pages) renders with zero ellipsis, and a narrow-page probe shows two-line
+  rows without overlap.
+
 # EPUB2PDF v1.1.7
 
 Reading-feel release: books that fake headings with styled paragraphs now get
